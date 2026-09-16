@@ -1,0 +1,7 @@
+name: filebox
+version: 0.1.0
+description: "Explorer-style file browser for Hermes Desktop: whitelist-guarded file CRUD, media preview, multi-select, rename, and trash. No network I/O, no model tokens."
+author: andreas
+kind: standalone
+requires_hermes: ">=0.19"
+platforms: []
