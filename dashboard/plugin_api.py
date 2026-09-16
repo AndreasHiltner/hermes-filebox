@@ -6,11 +6,13 @@ of guard_path (TOCTOU-safe). No network I/O, no model tokens.
 """
 from __future__ import annotations
 
+import mimetypes
 import os
 import subprocess
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from send2trash import send2trash
 
@@ -78,6 +80,10 @@ class BulkRenameRequest(BaseModel):
     suffix: str | None = None
     seq_start: int = 1
     seq_pad: int = 0
+
+
+class AddRootRequest(BaseModel):
+    path: str
 
 
 @router.get("/list")
@@ -246,3 +252,39 @@ def open_terminal(req: OpenRequest, store: RootStore = Depends(_get_store)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"opened": True, "cwd": target}
+
+
+@router.get("/preview")
+def preview(path: str, store: RootStore = Depends(_get_store)):
+    real = _guard(path, store.roots())
+    if not os.path.isfile(real):
+        raise HTTPException(status_code=404, detail="not a file")
+    mime, _ = mimetypes.guess_type(real)
+    if mime is None:
+        mime = "application/octet-stream"
+    if not (mime.startswith("image/") or mime.startswith("audio/") or mime == "application/pdf"):
+        raise HTTPException(status_code=415, detail="no inline preview for this type")
+    return FileResponse(real, media_type=mime)
+
+
+@router.get("/roots")
+def list_roots(store: RootStore = Depends(_get_store)):
+    return {"roots": store.roots()}
+
+
+@router.post("/roots")
+def add_root(req: AddRootRequest, store: RootStore = Depends(_get_store)):
+    try:
+        c = store.add_root(req.path)
+    except GuardError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    return {"roots": store.roots(), "added": c}
+
+
+@router.delete("/roots/{path:path}")
+def remove_root(path: str, store: RootStore = Depends(_get_store)):
+    c = os.path.realpath(os.path.expanduser(path))
+    if c not in store.roots():
+        raise HTTPException(status_code=404, detail="root not found")
+    store.remove_root(c)
+    return {"roots": store.roots(), "removed": c}
