@@ -1,7 +1,7 @@
 """Root whitelist persistence.
 
-roots.yaml (shipped, hand-editable) is the base; runtime-added roots merge
-over it in state/filebox/roots.json. Every root is canonicalized on add.
+Runtime-added roots persist in state/filebox/roots.json, merged over the
+built-in DEFAULT_ROOT_CANDIDATES. Every root is canonicalized on add.
 """
 from __future__ import annotations
 
@@ -21,21 +21,14 @@ DEFAULT_ROOT_CANDIDATES = [
 
 
 class RootStore:
-    def __init__(self, state_dir: Path, yaml_path: Path | None = None):
+    def __init__(self, state_dir: Path):
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self._json = self.state_dir / "roots.json"
-        self._yaml_path = yaml_path
         self._roots = self._load()
 
     def _load(self) -> list[str]:
         roots: list[str] = []
-        if self._yaml_path and self._yaml_path.exists():
-            text = self._yaml_path.read_text()
-            for line in text.splitlines():
-                line = line.strip()
-                if line.startswith("- "):
-                    roots.append(line[2:].strip())
         if self._json.exists():
             data = json.loads(self._json.read_text())
             roots.extend(data.get("roots", []))
@@ -56,8 +49,14 @@ class RootStore:
 
     def add_root(self, path: str) -> str:
         c = _canon(path)
-        if c in ("/", _canon("~")):
-            raise GuardError("refusing to add '/' or home as root")
+        home = _canon("~")
+        # Reject "/", home itself, and any ancestor of home: an ancestor root
+        # would subsume the entire home directory and defeat the whitelist.
+        try:
+            if c == "/" or os.path.commonpath([c, home]) == c:
+                raise GuardError("refusing to add '/' or a parent of home as root")
+        except ValueError:
+            pass
         if not os.path.isdir(c):
             raise GuardError("root must be an existing directory")
         if c not in self._roots:

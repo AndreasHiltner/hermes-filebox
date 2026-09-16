@@ -27,7 +27,7 @@ Hilfsmodule im Backend:
 ## Zustand
 
 - Runtime-Roots: `<HERMES_HOME>/state/filebox/roots.json` (per `POST /roots` hinzugefügt).
-- Basis-Roots: `roots.yaml` (falls vorhanden, hand-editierbar) + `DEFAULT_ROOT_CANDIDATES` in `roots.py`.
+- Basis-Roots: `DEFAULT_ROOT_CANDIDATES` in `roots.py` (greifen nur wenn der Ordner existiert) + Runtime-Roots in `roots.json`.
 
 ## Befehle
 
