@@ -77,3 +77,127 @@ def test_copy_directory_recursive(client, tmp_path):
     r = client.post("/copy", json={"sources": [str(root / "sub")], "target_dir": str(root / "sub2"), "on_conflict": "overwrite"})
     assert r.status_code == 200
     assert (root / "sub2" / "sub" / "b.md").exists()
+
+
+# ---- New tests from adversarial review ----
+
+def test_on_conflict_skip_top_level(client, tmp_path):
+    root = tmp_path / "root"
+    r = client.post("/copy", json={"sources": [str(root / "a.txt")], "target_dir": str(root), "on_conflict": "skip"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["results"][0]["status"] == "skipped"
+    # target not overwritten
+    assert (root / "a.txt").read_text() == "hello world"
+
+
+def test_on_conflict_rename_top_level(client, tmp_path):
+    root = tmp_path / "root"
+    r = client.post("/copy", json={"sources": [str(root / "a.txt")], "target_dir": str(root), "on_conflict": "rename"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["results"][0]["status"] == "renamed"
+    assert (root / "a (2).txt").exists()
+
+
+def test_rename_collision_loop(client, tmp_path):
+    root = tmp_path / "root"
+    (root / "a (2).txt").write_text("collision")
+    r = client.post("/copy", json={"sources": [str(root / "a.txt")], "target_dir": str(root), "on_conflict": "rename"})
+    assert r.status_code == 200
+    assert (root / "a (3).txt").exists()
+
+
+def test_decisions_field_uses_decision(client, tmp_path):
+    root = tmp_path / "root"
+    r = client.post("/copy", json={
+        "sources": [str(root / "a.txt")],
+        "target_dir": str(root),
+        "on_conflict": "ask",
+        "decisions": [{"source": str(root / "a.txt"), "decision": "skip"}],
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["results"][0]["status"] == "skipped"
+
+
+def test_nonexistent_source_404(client, tmp_path):
+    root = tmp_path / "root"
+    r = client.post("/copy", json={"sources": [str(root / "nope.txt")], "target_dir": str(root / "sub"), "on_conflict": "overwrite"})
+    assert r.status_code == 404
+
+
+def test_copy_directory_merge(client, tmp_path):
+    root = tmp_path / "root"
+    # pre-existing target dir with its own file
+    (root / "sub2" / "sub").mkdir(parents=True)
+    (root / "sub2" / "sub" / "c.md").write_text("# existing")
+    r = client.post("/copy", json={"sources": [str(root / "sub")], "target_dir": str(root / "sub2"), "on_conflict": "overwrite"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["results"][0]["status"] == "merged"
+    # both old and new content preserved
+    assert (root / "sub2" / "sub" / "b.md").exists()
+    assert (root / "sub2" / "sub" / "c.md").exists()
+
+
+def test_copy_dir_into_itself_400(client, tmp_path):
+    root = tmp_path / "root"
+    r = client.post("/copy", json={"sources": [str(root / "sub")], "target_dir": str(root / "sub"), "on_conflict": "overwrite"})
+    assert r.status_code == 400
+
+
+def test_duplicate_basename_400(client, tmp_path):
+    root = tmp_path / "root"
+    (root / "other").mkdir()
+    (root / "other" / "a.txt").write_text("other")
+    r = client.post("/copy", json={"sources": [str(root / "a.txt"), str(root / "other" / "a.txt")], "target_dir": str(root / "sub"), "on_conflict": "overwrite"})
+    assert r.status_code == 400
+
+
+def test_recursive_move_directory(client, tmp_path):
+    root = tmp_path / "root"
+    r = client.post("/move", json={"sources": [str(root / "sub")], "target_dir": str(root / "sub2"), "on_conflict": "overwrite"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["results"][0]["status"] == "moved"
+    assert not (root / "sub").exists()
+    assert (root / "sub2" / "sub" / "b.md").exists()
+
+
+def test_nested_symlink_outside_403(client, tmp_path):
+    root = tmp_path / "root"
+    outside = tmp_path / "outside_secret.txt"
+    outside.write_text("secret")
+    src = root / "sub"
+    os.symlink(str(outside), str(src / "link"))
+    r = client.post("/copy", json={"sources": [str(src)], "target_dir": str(root / "sub2"), "on_conflict": "overwrite"})
+    assert r.status_code == 403
+
+
+def test_phase2_reguard(client, tmp_path):
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "x.txt").write_text("x")
+    # phase-2 request with an outside-whitelist source must be re-guarded -> 403
+    r = client.post("/copy", json={
+        "sources": [str(outside / "x.txt")],
+        "target_dir": str(root),
+        "on_conflict": "ask",
+        "decisions": [{"source": str(outside / "x.txt"), "decision": "skip"}],
+    })
+    assert r.status_code == 403
+
+
+def test_target_dir_is_file_400(client, tmp_path):
+    root = tmp_path / "root"
+    (root / "target_file.txt").write_text("target")
+    r = client.post("/copy", json={"sources": [str(root / "a.txt")], "target_dir": str(root / "target_file.txt"), "on_conflict": "overwrite"})
+    assert r.status_code == 400
+
+
+def test_empty_sources_400(client, tmp_path):
+    root = tmp_path / "root"
+    r = client.post("/copy", json={"sources": [], "target_dir": str(root / "sub"), "on_conflict": "overwrite"})
+    assert r.status_code == 400

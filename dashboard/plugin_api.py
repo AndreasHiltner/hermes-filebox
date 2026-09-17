@@ -326,9 +326,13 @@ def _collect_conflicts(sources: list[str], target_dir: str) -> list[dict]:
 def _unique_target(target: str) -> str:
     base, ext = os.path.splitext(target)
     n = 2
-    while os.path.lexists(f"{base} ({n}){ext}") and n < 1000:
+    candidate = f"{base} ({n}){ext}"
+    while os.path.lexists(candidate) and n < 1000:
         n += 1
-    return f"{base} ({n}){ext}"
+        candidate = f"{base} ({n}){ext}"
+    if os.path.lexists(candidate):
+        raise HTTPException(status_code=409, detail="too many collisions")
+    return candidate
 
 
 def _execute_copy_move(req: CopyMoveRequest, roots: list[str], move: bool):
@@ -336,14 +340,34 @@ def _execute_copy_move(req: CopyMoveRequest, roots: list[str], move: bool):
         raise HTTPException(status_code=400, detail="invalid on_conflict")
     if not req.sources:
         raise HTTPException(status_code=400, detail="no sources")
-    sources = [_guard(s, roots) for s in req.sources]
+
+    # dedupe identical sources (overlap edge case)
+    sources = list(dict.fromkeys(req.sources))
+
+    # basename collision between distinct sources -> 400
+    basenames = [os.path.basename(s) for s in sources]
+    if len(set(basenames)) < len(basenames):
+        raise HTTPException(status_code=400, detail="duplicate basename")
+
+    # guard sources + target_dir (404 for nonexistent source)
+    guarded = []
+    for s in sources:
+        real = _guard(s, roots)
+        if not os.path.lexists(real):
+            raise HTTPException(status_code=404, detail="not found")
+        guarded.append(real)
+    sources = guarded
+
     target_dir = _guard(req.target_dir, roots)
     if os.path.isfile(target_dir):
         raise HTTPException(status_code=400, detail="target_dir is a file")
     os.makedirs(target_dir, exist_ok=True)
     for s in sources:
         _check_cycle(s, target_dir)
-        guard_tree(s, roots)
+        try:
+            guard_tree(s, roots)
+        except GuardError as e:
+            raise HTTPException(status_code=403, detail=str(e))
 
     conflicts = _collect_conflicts(sources, target_dir)
     non_conflicts = [s for s in sources if not os.path.lexists(_target_of(s, target_dir))]
@@ -351,32 +375,43 @@ def _execute_copy_move(req: CopyMoveRequest, roots: list[str], move: bool):
     if req.on_conflict == "ask" and not req.decisions:
         return {"phase": "ask", "conflicts": conflicts, "non_conflicts": non_conflicts}
 
-    decisions = {d["source"]: d.get("mode", "skip") for d in (req.decisions or [])}
+    decisions = {d["source"]: d.get("decision", "skip") for d in (req.decisions or [])}
 
     results, errors = [], []
     for s in sources:
         target = _target_of(s, target_dir)
         try:
+            mode = decisions.get(s, req.on_conflict)
+            renamed = False
             if os.path.lexists(target):
-                mode = decisions.get(s)
                 if mode == "skip":
-                    results.append({"source": s, "target": target, "skipped": True})
+                    results.append({"from": s, "to": target, "status": "skipped"})
                     continue
                 if mode == "rename":
                     target = _unique_target(target)
+                    renamed = True
             if os.path.isdir(s):
                 if move:
                     shutil.move(s, target)
+                    status = "moved"
                 else:
+                    target_exists = os.path.isdir(target)
                     shutil.copytree(s, target, symlinks=True, dirs_exist_ok=True)
+                    status = "merged" if target_exists else "copied"
             else:
                 if move:
                     shutil.move(s, target)
+                    status = "moved"
                 else:
                     shutil.copy2(s, target)
-            results.append({"source": s, "target": target, "moved": move})
+                    status = "copied"
+            if renamed:
+                status = "renamed"
+            results.append({"from": s, "to": target, "status": status})
+        except HTTPException as e:
+            raise e
         except OSError as e:
-            errors.append({"source": s, "error": str(e)})
+            errors.append({"path": s, "error": str(e)})
     return {"phase": "execute", "results": results, "errors": errors}
 
 
