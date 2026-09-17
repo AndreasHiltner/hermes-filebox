@@ -201,3 +201,18 @@ def test_empty_sources_400(client, tmp_path):
     root = tmp_path / "root"
     r = client.post("/copy", json={"sources": [], "target_dir": str(root / "sub"), "on_conflict": "overwrite"})
     assert r.status_code == 400
+
+
+def test_decisions_source_canonicalized(client, tmp_path):
+    root = tmp_path / "root"
+    # decision references the source via a symlink path that realpaths to the same file
+    os.symlink(str(root / "a.txt"), str(root / "alias.txt"))
+    r = client.post("/copy", json={
+        "sources": [str(root / "a.txt")],
+        "target_dir": str(root),
+        "on_conflict": "ask",
+        "decisions": [{"source": str(root / "alias.txt"), "decision": "skip"}],
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["results"][0]["status"] == "skipped"

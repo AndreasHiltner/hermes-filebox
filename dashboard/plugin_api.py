@@ -375,7 +375,10 @@ def _execute_copy_move(req: CopyMoveRequest, roots: list[str], move: bool):
     if req.on_conflict == "ask" and not req.decisions:
         return {"phase": "ask", "conflicts": conflicts, "non_conflicts": non_conflicts}
 
-    decisions = {d["source"]: d.get("decision", "skip") for d in (req.decisions or [])}
+    decisions = {}
+    for d in (req.decisions or []):
+        key = os.path.realpath(os.path.expanduser(d["source"]))
+        decisions[key] = d.get("decision", "skip")
 
     results, errors = [], []
     for s in sources:
