@@ -56,7 +56,6 @@ function fmtMtime(mtime) {
 // from 'react' (allowed specifier). All state is UI-local; no fs/network/tokens.
 // ---------------------------------------------------------------------------
 function FileboxPane({ ctx }) {
-  const [roots, setRoots] = useState([])
   const [panels, setPanels] = useState({
     left: { path: null, entries: [] },
     right: { path: null, entries: [] },
@@ -68,7 +67,6 @@ function FileboxPane({ ctx }) {
 
   const loadRoots = useCallback(async () => {
     const r = await listRoots(ctx)
-    setRoots(r.roots)
     return r.roots
   }, [ctx])
 
@@ -143,10 +141,8 @@ function FileboxPane({ ctx }) {
       setDialog({
         kind: 'conflict',
         op,
-        sources,
         targetDir,
         conflicts: resp.conflicts,
-        nonConflicts: resp.non_conflicts,
         decisions: {},
       })
     } else {
@@ -159,7 +155,13 @@ function FileboxPane({ ctx }) {
   function summarizeResults(results, errors) {
     const ok = (results || []).length
     const err = (errors || []).length
-    return { kind: err ? 'error' : 'ok', text: ok + ' done' + (err ? ', ' + err + ' error(s)' : '') }
+    let text = ok + ' done'
+    if (err) {
+      const shown = (errors || []).slice(0, 5).map((e) => e.path + ' (' + e.error + ')').join(', ')
+      const more = err > 5 ? ', and ' + (err - 5) + ' more' : ''
+      text += ', ' + err + ' error(s): ' + shown + more
+    }
+    return { kind: err ? 'error' : 'ok', text }
   }
 
   async function refreshAfter(sources, src) {
@@ -212,15 +214,14 @@ function FileboxPane({ ctx }) {
 
   // --- delete (trash) -----------------------------------------------------
   async function trashSelection() {
-    const sel = Object.keys(selected[active]).filter((k) => selected[active][k])
+    const sel = selectedPaths(active)
     if (!sel.length) {
       setNotice({ kind: 'error', text: 'Nothing selected.' })
       return
     }
     const resp = await del(ctx, '/trash', { paths: sel })
-    setNotice({ kind: resp.errors && resp.errors.length ? 'error' : 'ok', text: 'Trashed.' })
-    await loadPanel(active, panels[active].path)
-    await loadPanel(otherSide(active), panels[otherSide(active)].path)
+    setNotice(summarizeResults(resp.results, resp.errors))
+    await refreshAfter(sel, active)
   }
 
   // --- keyboard (Total Commander layout) ----------------------------------
@@ -236,7 +237,7 @@ function FileboxPane({ ctx }) {
       trashSelection()
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      const sel = Object.keys(selected[active]).filter((k) => selected[active][k])
+      const sel = selectedPaths(active)
       if (sel.length === 1) {
         const entry = panels[active].entries.find((x) => x.path === sel[0])
         if (entry) navigate(active, entry)
@@ -349,7 +350,7 @@ function FileboxPane({ ctx }) {
     if (!notice) return null
     const style = {
       padding: '6px',
-      color: notice.kind === 'error' ? 'var(--ui-accent)' : 'var(--ui-text-secondary)',
+      color: notice.kind === 'error' ? 'var(--ui-red, #e5484d)' : 'var(--ui-text-secondary)',
     }
     return el('div', { style }, notice.text)
   }
@@ -389,7 +390,7 @@ function FileboxPane({ ctx }) {
       justifyContent: 'center',
     }
     const boxStyle = {
-      background: 'var(--ui-background, #1e1e1e)',
+      background: 'var(--ui-bg-elevated)',
       padding: '16px',
       border: '1px solid var(--ui-stroke-secondary)',
       maxHeight: '70vh',
@@ -424,7 +425,7 @@ function FileboxPane({ ctx }) {
       justifyContent: 'center',
     }
     const boxStyle = {
-      background: 'var(--ui-background, #1e1e1e)',
+      background: 'var(--ui-bg-elevated)',
       padding: '16px',
       border: '1px solid var(--ui-stroke-secondary)',
     }
