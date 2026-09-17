@@ -4,7 +4,7 @@
 // No network, no model tokens, no fs access. Runs uncompiled: no JSX syntax,
 // UI is built with jsx()/jsxs() from react/jsx-runtime.
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 
 // ---------------------------------------------------------------------------
@@ -195,6 +195,9 @@ function FileboxPane({ ctx }) {
     setDialog({ kind: 'symlink', sources, targetDir: panels[otherSide(active)].path, linkType: 'relative' })
   }
 
+  const startSymlinkRef = useRef()
+  startSymlinkRef.current = startSymlink
+
   async function confirmSymlink() {
     const d = dialog
     const resp = await post(ctx, '/symlink', {
@@ -209,33 +212,34 @@ function FileboxPane({ ctx }) {
 
   // --- delete (trash) -----------------------------------------------------
   async function trashSelection() {
-    const paths = selectedPaths(active)
-    if (!paths.length) {
+    const sel = Object.keys(selected[active]).filter((k) => selected[active][k])
+    if (!sel.length) {
       setNotice({ kind: 'error', text: 'Nothing selected.' })
       return
     }
-    const resp = await del(ctx, '/trash', { paths })
+    const resp = await del(ctx, '/trash', { paths: sel })
     setNotice({ kind: resp.errors && resp.errors.length ? 'error' : 'ok', text: 'Trashed.' })
     await loadPanel(active, panels[active].path)
+    await loadPanel(otherSide(active), panels[otherSide(active)].path)
   }
 
   // --- keyboard (Total Commander layout) ----------------------------------
-  function onKeyDown(side, e) {
+  function onKeyDown(e) {
     if (e.key === 'F5') {
       e.preventDefault()
-      runCopyMove('/copy', panels[otherSide(side)].path)
+      runCopyMove('/copy', panels[otherSide(active)].path)
     } else if (e.key === 'F6') {
       e.preventDefault()
-      runCopyMove('/move', panels[otherSide(side)].path)
+      runCopyMove('/move', panels[otherSide(active)].path)
     } else if (e.key === 'F8') {
       e.preventDefault()
       trashSelection()
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      const sel = Object.keys(selected[side]).filter((k) => selected[side][k])
+      const sel = Object.keys(selected[active]).filter((k) => selected[active][k])
       if (sel.length === 1) {
-        const entry = panels[side].entries.find((x) => x.path === sel[0])
-        if (entry) navigate(side, entry)
+        const entry = panels[active].entries.find((x) => x.path === sel[0])
+        if (entry) navigate(active, entry)
       }
     }
   }
@@ -243,7 +247,7 @@ function FileboxPane({ ctx }) {
   function onGlobalKeyDown(e) {
     if (e.ctrlKey && e.shiftKey && e.key === 'F5') {
       e.preventDefault()
-      startSymlink()
+      startSymlinkRef.current()
     }
   }
 
@@ -464,7 +468,7 @@ function FileboxPane({ ctx }) {
 
   return el(
     'div',
-    { style: root, tabIndex: 0 },
+    { style: root, tabIndex: 0, onKeyDown },
     renderToolbar(),
     el('div', { style: panelsRow }, renderPanel('left'), renderPanel('right')),
     renderNotice(),
