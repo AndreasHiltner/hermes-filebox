@@ -216,3 +216,50 @@ def test_decisions_source_canonicalized(client, tmp_path):
     assert r.status_code == 200
     body = r.json()
     assert body["results"][0]["status"] == "skipped"
+
+
+def test_symlink_alias_sources_deduped(client, tmp_path):
+    root = tmp_path / "root"
+    os.symlink(str(root / "a.txt"), str(root / "alias.txt"))
+    r = client.post("/copy", json={
+        "sources": [str(root / "a.txt"), str(root / "alias.txt")],
+        "target_dir": str(root / "sub"),
+        "on_conflict": "overwrite",
+    })
+    assert r.status_code == 200
+    body = r.json()
+    # deduped to a single canonical source
+    assert len(body["results"]) == 1
+    assert (root / "sub" / "a.txt").exists()
+
+
+def test_ask_unresolved_conflict_goes_to_errors(client, tmp_path):
+    root = tmp_path / "root"
+    r = client.post("/copy", json={
+        "sources": [str(root / "a.txt")],
+        "target_dir": str(root),
+        "on_conflict": "ask",
+        "decisions": [],  # empty list -> phase-2 path with no decision
+    })
+    # empty decisions is falsy -> hits phase-1 early return
+    assert r.status_code == 200
+    assert r.json()["phase"] == "ask"
+
+
+def test_ask_partial_decisions_unresolved_not_overwritten(client, tmp_path):
+    root = tmp_path / "root"
+    (root / "b.txt").write_text("b")
+    r = client.post("/copy", json={
+        "sources": [str(root / "a.txt"), str(root / "b.txt")],
+        "target_dir": str(root),
+        "on_conflict": "ask",
+        "decisions": [{"source": str(root / "a.txt"), "decision": "skip"}],
+    })
+    assert r.status_code == 200
+    body = r.json()
+    # a.txt -> skipped (decision), b.txt -> unresolved -> error, NOT overwritten
+    statuses = {res["from"]: res["status"] for res in body["results"]}
+    assert any(res["status"] == "skipped" for res in body["results"])
+    # b.txt was a conflict with no decision -> must land in errors, content preserved
+    assert any("conflict unresolved" in e["error"] for e in body["errors"])
+    assert (root / "b.txt").read_text() == "b"

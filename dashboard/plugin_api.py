@@ -311,7 +311,7 @@ def _is_within(child: str, parent: str) -> bool:
 
 def _check_cycle(source: str, target_dir: str) -> None:
     if os.path.isdir(source) and _is_within(target_dir, source):
-        raise HTTPException(status_code=400, detail="cannot move a directory into itself")
+        raise HTTPException(status_code=400, detail="cannot copy/move a directory into itself")
 
 
 def _collect_conflicts(sources: list[str], target_dir: str) -> list[dict]:
@@ -341,22 +341,20 @@ def _execute_copy_move(req: CopyMoveRequest, roots: list[str], move: bool):
     if not req.sources:
         raise HTTPException(status_code=400, detail="no sources")
 
-    # dedupe identical sources (overlap edge case)
-    sources = list(dict.fromkeys(req.sources))
+    # guard + canonicalize + 404 for nonexistent source FIRST, then dedupe
+    # (dedupe must run on canonical paths so symlink aliases collapse)
+    guarded = []
+    for s in req.sources:
+        real = _guard(s, roots)
+        if not os.path.lexists(real):
+            raise HTTPException(status_code=404, detail="not found")
+        guarded.append(real)
+    sources = list(dict.fromkeys(guarded))
 
     # basename collision between distinct sources -> 400
     basenames = [os.path.basename(s) for s in sources]
     if len(set(basenames)) < len(basenames):
         raise HTTPException(status_code=400, detail="duplicate basename")
-
-    # guard sources + target_dir (404 for nonexistent source)
-    guarded = []
-    for s in sources:
-        real = _guard(s, roots)
-        if not os.path.lexists(real):
-            raise HTTPException(status_code=404, detail="not found")
-        guarded.append(real)
-    sources = guarded
 
     target_dir = _guard(req.target_dir, roots)
     if os.path.isfile(target_dir):
@@ -393,6 +391,9 @@ def _execute_copy_move(req: CopyMoveRequest, roots: list[str], move: bool):
                 if mode == "rename":
                     target = _unique_target(target)
                     renamed = True
+                elif mode == "ask":
+                    errors.append({"path": s, "error": "conflict unresolved (no decision)"})
+                    continue
             if os.path.isdir(s):
                 if move:
                     shutil.move(s, target)
@@ -411,8 +412,6 @@ def _execute_copy_move(req: CopyMoveRequest, roots: list[str], move: bool):
             if renamed:
                 status = "renamed"
             results.append({"from": s, "to": target, "status": status})
-        except HTTPException as e:
-            raise e
         except OSError as e:
             errors.append({"path": s, "error": str(e)})
     return {"phase": "execute", "results": results, "errors": errors}
