@@ -14,7 +14,7 @@ Two halves, cleanly separated:
 ```
 ┌─────────────────────────────┐      ctx.rest      ┌──────────────────────────────┐
 │ desktop/plugin.js          │ ───────────────────▶ │ dashboard/plugin_api.py     │
-│ thin ESM renderer           │  GET/POST/DELETE     │ FastAPI router (owns ALL    │
+│ dual-panel commander        │  GET/POST/DELETE     │ FastAPI router (owns ALL    │
 │ presentation only           │                     │ filesystem I/O)              │
 │ no fs, no network          │ ◀─────────────────── │ mounted at                    │
 └─────────────────────────────┘      JSON             │ /api/plugins/filebox/        │
@@ -28,14 +28,16 @@ Two halves, cleanly separated:
   - `guard.py` — `guard_path()` whitelist guard, returns canonical `realpath`.
   - `roots.py` — `RootStore` (roots / add_root / remove_root), persisted in
     `state/filebox/roots.json`.
-  - `plugin_api.py` — the 10 HTTP endpoints.
-- **Renderer** (`desktop/plugin.js`): thin ESM skeleton that calls `ctx.rest`
+  - `plugin_api.py` — the 13 HTTP endpoints.
+- **Renderer** (`desktop/plugin.js`): dual-panel commander that calls `ctx.rest`
   and renders. No filesystem access, no network, no tokens.
 
 ## Security model
 
 1. **Root whitelist** — every filesystem operation is validated against the
    configured roots. A path outside the whitelist is rejected with `403`.
+   This includes the `target_dir` of `/copy`, `/move`, and `/symlink`, which
+   is guarded against the whitelist exactly like any source path.
 2. **TOCTOU-safe guard** — `guard_path()` resolves the input to a canonical
    `realpath` and returns it. Handlers must open **that return value**, never
    the raw input, closing the symlink-swap window.
@@ -70,6 +72,9 @@ Mounted at `/api/plugins/filebox/`.
 | POST   | `/bulk-rename`      | Bulk rename (replace/prefix/suffix/seq)  |
 | POST   | `/open`             | Open with `xdg-open`                     |
 | POST   | `/open-terminal`    | Open terminal in a directory             |
+| POST   | `/copy`             | Copy entries (ask/overwrite/skip/rename conflict handling) |
+| POST   | `/move`             | Move entries (same conflict model as `/copy`) |
+| POST   | `/symlink`          | Create relative/absolute symlinks        |
 | DELETE | `/roots/{path}`     | Remove a root                            |
 | DELETE | `/trash`            | Move entries to trash (send2trash)       |
 
@@ -77,10 +82,22 @@ Error contract: `403` outside whitelist, `404` not found, `400` invalid input,
 `409` target exists, `413` file too large, `415` unsupported/binary,
 `500` launcher failure.
 
+## Commander mode
+
+The renderer is a **dual-panel commander** (Total-Commander-style): two panels,
+each with a path bar and entry list plus multi-select checkboxes. One panel is
+active; the other is the operation target.
+
+- `F5` copy, `F6` move, `F8` delete (trash) — with matching buttons.
+- `Enter` open / navigate into a directory.
+- `Ctrl+Shift+F5` create symlink (relative/absolute dialog).
+- Copy/move conflicts (`phase: "ask"`) open a per-file dialog — skip / overwrite /
+  rename — then re-submit with `decisions` for phase 2.
+
 ## Tests
 
 ```bash
 env -u PYTHONPATH /home/andreas/.hermes/hermes-agent/venv/bin/python -m pytest tests/ -q
 ```
 
-26 tests green across guard, roots, api, and preview.
+98 tests green across guard, roots, api, preview, copy_move, symlink, and security_regression.
