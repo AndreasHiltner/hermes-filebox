@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import mimetypes
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from send2trash import send2trash
 
-from guard import GuardError, guard_path
+from guard import GuardError, guard_path, guard_tree
 from roots import RootStore
 
 router = APIRouter()
@@ -84,6 +85,13 @@ class BulkRenameRequest(BaseModel):
 
 class AddRootRequest(BaseModel):
     path: str
+
+
+class CopyMoveRequest(BaseModel):
+    sources: list[str]
+    target_dir: str
+    on_conflict: str = "ask"
+    decisions: list[dict] | None = None
 
 
 @router.get("/list")
@@ -288,3 +296,95 @@ def remove_root(path: str, store: RootStore = Depends(_get_store)):
         raise HTTPException(status_code=404, detail="root not found")
     store.remove_root(c)
     return {"roots": store.roots(), "removed": c}
+
+
+def _target_of(source: str, target_dir: str) -> str:
+    return os.path.join(target_dir, os.path.basename(source))
+
+
+def _is_within(child: str, parent: str) -> bool:
+    try:
+        return os.path.commonpath([os.path.realpath(child), os.path.realpath(parent)]) == os.path.realpath(parent)
+    except ValueError:
+        return False
+
+
+def _check_cycle(source: str, target_dir: str) -> None:
+    if os.path.isdir(source) and _is_within(target_dir, source):
+        raise HTTPException(status_code=400, detail="cannot move a directory into itself")
+
+
+def _collect_conflicts(sources: list[str], target_dir: str) -> list[dict]:
+    conflicts = []
+    for s in sources:
+        target = _target_of(s, target_dir)
+        if os.path.lexists(target):
+            conflicts.append({"source": s, "target": target, "exists": True})
+    return conflicts
+
+
+def _unique_target(target: str) -> str:
+    base, ext = os.path.splitext(target)
+    n = 2
+    while os.path.lexists(f"{base} ({n}){ext}") and n < 1000:
+        n += 1
+    return f"{base} ({n}){ext}"
+
+
+def _execute_copy_move(req: CopyMoveRequest, roots: list[str], move: bool):
+    if req.on_conflict not in ("ask", "overwrite", "skip", "rename"):
+        raise HTTPException(status_code=400, detail="invalid on_conflict")
+    if not req.sources:
+        raise HTTPException(status_code=400, detail="no sources")
+    sources = [_guard(s, roots) for s in req.sources]
+    target_dir = _guard(req.target_dir, roots)
+    if os.path.isfile(target_dir):
+        raise HTTPException(status_code=400, detail="target_dir is a file")
+    os.makedirs(target_dir, exist_ok=True)
+    for s in sources:
+        _check_cycle(s, target_dir)
+        guard_tree(s, roots)
+
+    conflicts = _collect_conflicts(sources, target_dir)
+    non_conflicts = [s for s in sources if not os.path.lexists(_target_of(s, target_dir))]
+
+    if req.on_conflict == "ask" and not req.decisions:
+        return {"phase": "ask", "conflicts": conflicts, "non_conflicts": non_conflicts}
+
+    decisions = {d["source"]: d.get("mode", "skip") for d in (req.decisions or [])}
+
+    results, errors = [], []
+    for s in sources:
+        target = _target_of(s, target_dir)
+        try:
+            if os.path.lexists(target):
+                mode = decisions.get(s)
+                if mode == "skip":
+                    results.append({"source": s, "target": target, "skipped": True})
+                    continue
+                if mode == "rename":
+                    target = _unique_target(target)
+            if os.path.isdir(s):
+                if move:
+                    shutil.move(s, target)
+                else:
+                    shutil.copytree(s, target, symlinks=True, dirs_exist_ok=True)
+            else:
+                if move:
+                    shutil.move(s, target)
+                else:
+                    shutil.copy2(s, target)
+            results.append({"source": s, "target": target, "moved": move})
+        except OSError as e:
+            errors.append({"source": s, "error": str(e)})
+    return {"phase": "execute", "results": results, "errors": errors}
+
+
+@router.post("/copy")
+def copy_items(req: CopyMoveRequest, store: RootStore = Depends(_get_store)):
+    return _execute_copy_move(req, store.roots(), move=False)
+
+
+@router.post("/move")
+def move_items(req: CopyMoveRequest, store: RootStore = Depends(_get_store)):
+    return _execute_copy_move(req, store.roots(), move=True)
