@@ -105,3 +105,43 @@ def test_symlink_source_is_symlink_outside_403(client, tmp_path):
     # guard_path realpaths -> outside whitelist -> 403
     r = client.post("/symlink", json={"sources": [str(root / "link.txt")], "target_dir": str(root / "sub"), "link_type": "relative"})
     assert r.status_code == 403
+
+
+def test_symlink_target_dir_symlink_outside_403(client, tmp_path):
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    os.symlink(str(outside), str(root / "sub_link"))
+    # target_dir is a symlink -> outside whitelist -> guard realpaths -> 403
+    r = client.post("/symlink", json={"sources": [str(root / "a.txt")], "target_dir": str(root / "sub_link"), "link_type": "relative"})
+    assert r.status_code == 403
+
+
+def test_symlink_target_dir_symlink_inside_lands_at_canonical(client, tmp_path):
+    root = tmp_path / "root"
+    (root / "real_sub").mkdir()
+    os.symlink(str(root / "real_sub"), str(root / "sub_alias"))
+    # target_dir is a symlink pointing INSIDE whitelist -> link must land at canonical dir
+    r = client.post("/symlink", json={"sources": [str(root / "a.txt")], "target_dir": str(root / "sub_alias"), "link_type": "absolute"})
+    assert r.status_code == 200
+    # link created at the real target directory (canonical), not through the symlink alias
+    assert (root / "real_sub" / "a.txt").is_symlink()
+
+
+def test_symlink_link_on_link_chain_outside_403(client, tmp_path):
+    root = tmp_path / "root"
+    outside = tmp_path / "outside_secret.txt"
+    outside.write_text("secret")
+    # chain: root/chain.txt -> root/link.txt -> outside
+    os.symlink(str(outside), str(root / "link.txt"))
+    os.symlink(str(root / "link.txt"), str(root / "chain.txt"))
+    r = client.post("/symlink", json={"sources": [str(root / "chain.txt")], "target_dir": str(root / "sub"), "link_type": "relative"})
+    assert r.status_code == 403
+
+
+def test_symlink_duplicate_sources_deduped(client, tmp_path):
+    root = tmp_path / "root"
+    r = client.post("/symlink", json={"sources": [str(root / "a.txt"), str(root / "a.txt")], "target_dir": str(root / "sub"), "link_type": "relative"})
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["results"]) == 1
