@@ -85,14 +85,44 @@ Error contract: `403` outside whitelist, `404` not found, `400` invalid input,
 ## Commander mode
 
 The renderer is a **dual-panel commander** (Total-Commander-style): two panels,
-each with a path bar and entry list plus multi-select checkboxes. One panel is
-active; the other is the operation target.
+each with a path bar (a roots `<select>` dropdown) and entry list plus
+multi-select checkboxes. One panel is active; the other is the operation target.
 
-- `F5` copy, `F6` move, `F8` delete (trash) — with matching buttons.
-- `Enter` open / navigate into a directory.
+- `F5` copy, `F6` move, `F8` delete (trash) — with matching toolbar buttons.
+- `Enter` open / navigate into a directory. `..` parent entry navigates up.
+- Entries are sorted **directories first, then files**, each group alphabetically
+  ascending (`/list` sorts by `is_dir` first, then by the requested key).
+- Single-click selects exactly one entry (clears previous selection); open a file
+  or descend into a directory only via double-click or Ctrl/Cmd+Click. Checkboxes
+  do multi-select (checkbox clicks stop propagation, never navigate).
 - `Ctrl+Shift+F5` create symlink (relative/absolute dialog).
 - Copy/move conflicts (`phase: "ask"`) open a per-file dialog — skip / overwrite /
-  rename — then re-submit with `decisions` for phase 2.
+  rename — then re-submit with `decisions` for phase 2. Unresolved conflicts block
+  "Apply" ("Resolve all conflicts first (N left)").
+
+### Right-click context menu
+
+Right-click on a **file/folder entry only** opens the custom context menu
+(Open / Copy / Move / Delete / Symlink); right-click also selects the entry.
+The path-bar `<select>` and the `..` parent entry do **not** show any menu — the
+pane root carries `data-context-menu-skip`, which suppresses the app's global
+context menu everywhere except on owned entry rows, whose `onContextMenu` handler
+calls `preventDefault()` + `stopPropagation()` and renders its own menu.
+
+### Delete confirmation
+
+`F8` / toolbar / context-menu delete does **not** execute immediately. It opens a
+confirmation dialog listing the selected names ("Move this item to trash?" /
+"Move these N items to trash?") with Delete and Cancel. Deletion runs only on
+confirm, via `DELETE /trash`.
+
+### Adding a root
+
+The toolbar "＋ Add root" button opens a dialog for an absolute directory path.
+On confirm it `POST`s `/roots` (backend canonicalizes and persists to
+`state/filebox/roots.json`, refusing `/`, `~`, and any ancestor of `~`), refreshes
+the roots list, and loads the new root into the active panel. Roots also appear in
+each panel's path-bar dropdown, which switches the panel on change.
 
 ## Tests
 

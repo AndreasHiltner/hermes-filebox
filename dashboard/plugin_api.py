@@ -17,6 +17,13 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from send2trash import send2trash
 
+# The dashboard loader imports this file as a standalone module
+# (spec_from_file_location) WITHOUT adding the dashboard/ dir to sys.path, so
+# sibling modules (guard, roots) are not importable by bare name. Add our own
+# directory first — the same technique tests/ uses to import this module.
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from guard import GuardError, guard_path, guard_tree
 from roots import RootStore
 
@@ -129,11 +136,14 @@ def list_dir(
             })
     reverse = order == "desc"
     if sort == "size":
-        entries.sort(key=lambda x: x["size"] or 0, reverse=reverse)
+        keyfn = lambda x: x["size"] or 0
     elif sort == "mtime":
-        entries.sort(key=lambda x: x["mtime"], reverse=reverse)
+        keyfn = lambda x: x["mtime"]
     else:
-        entries.sort(key=lambda x: x["name"].lower(), reverse=reverse)
+        keyfn = lambda x: x["name"].lower()
+    entries.sort(key=keyfn, reverse=reverse)
+    # Stable second pass: directories always first, preserving the inner order.
+    entries.sort(key=lambda x: 0 if x["is_dir"] else 1)
     total = len(entries)
     start = page * limit
     return {"entries": entries[start:start + limit], "total": total, "page": page, "limit": limit}
@@ -376,7 +386,10 @@ def _execute_copy_move(req: CopyMoveRequest, roots: list[str], move: bool):
     conflicts = _collect_conflicts(sources, target_dir)
     non_conflicts = [s for s in sources if not os.path.lexists(_target_of(s, target_dir))]
 
-    if req.on_conflict == "ask" and not req.decisions:
+    # Only pause for the "ask" phase when there ARE conflicts to resolve.
+    # A conflict-free copy must execute immediately — otherwise the client
+    # shows an empty "Resolve (0)" dialog.
+    if req.on_conflict == "ask" and not req.decisions and conflicts:
         return {"phase": "ask", "conflicts": conflicts, "non_conflicts": non_conflicts}
 
     decisions = {}

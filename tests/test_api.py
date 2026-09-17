@@ -33,6 +33,19 @@ def test_list(client, tmp_path):
     assert "a.txt" in names and "sub" in names
 
 
+def test_list_dirs_first(client, tmp_path):
+    root = tmp_path / "root"
+    (root / "z-dir").mkdir()
+    (root / "a-dir").mkdir()
+    (root / "m.txt").write_text("x")
+    (root / "b.txt").write_text("x")
+    r = client.get("/list", params={"path": str(root), "sort": "name", "order": "asc"})
+    entries = r.json()["entries"]
+    names = [e["name"] for e in entries]
+    # Directories first (alphabetical), then files (alphabetical).
+    assert names == ["a-dir", "sub", "z-dir", "a.txt", "b.txt", "m.txt"]
+
+
 def test_list_outside_whitelist_403(client, tmp_path):
     outside = tmp_path / "outside"
     outside.mkdir()
