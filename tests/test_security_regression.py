@@ -318,3 +318,60 @@ def test_guard_never_valueerror():
 
 def test_guard_is_permission_error_subclass():
     assert issubclass(GuardError, PermissionError)
+
+
+# ---------------------------------------------------------------------------
+# 11. Slice 3 — nested-symlink exfiltration + phase-2 re-guard (copy/move)
+# ---------------------------------------------------------------------------
+
+def test_nested_symlink_outside_copy_403(client, tmp_path):
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    (outside / "secret.txt").write_text("TOP SECRET")
+    (root / "srcdir").mkdir()
+    (root / "srcdir" / "good.txt").write_text("good")
+    (root / "srcdir" / "link").symlink_to(outside / "secret.txt")
+    r = client.post("/copy", json={"sources": [str(root / "srcdir")], "target_dir": str(root / "sub"), "on_conflict": "overwrite"})
+    assert r.status_code == 403
+    assert not (root / "sub" / "srcdir").exists()
+
+
+def test_nested_symlink_outside_move_403(client, tmp_path):
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    (root / "srcdir").mkdir()
+    (root / "srcdir" / "link").symlink_to(outside / "secret.txt")
+    r = client.post("/move", json={"sources": [str(root / "srcdir")], "target_dir": str(root / "sub"), "on_conflict": "overwrite"})
+    assert r.status_code == 403
+    # source dir untouched (move must not partially consume it)
+    assert (root / "srcdir").exists()
+
+
+def test_nested_symlink_inside_whitelist_preserved(client, tmp_path):
+    # A symlink inside the tree pointing to ANOTHER whitelist path must be
+    # preserved as a link (copytree symlinks=True), not dereferenced or rejected.
+    root = tmp_path / "root"
+    (root / "target.txt").write_text("target")
+    (root / "srcdir").mkdir()
+    (root / "srcdir" / "link").symlink_to(root / "target.txt")
+    r = client.post("/copy", json={"sources": [str(root / "srcdir")], "target_dir": str(root / "sub"), "on_conflict": "overwrite"})
+    assert r.status_code == 200
+    copied_link = root / "sub" / "srcdir" / "link"
+    assert copied_link.is_symlink()
+
+
+def test_phase2_reguard_swap_outside_403(client, tmp_path):
+    # Phase-2 (post-dialog) request with a source that now resolves outside the
+    # whitelist must be re-guarded and rejected — no server-side trust carried
+    # across the dialog pause (stateless protocol).
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    (outside / "x.txt").write_text("x")
+    r = client.post("/copy", json={
+        "sources": [str(outside / "x.txt")],
+        "target_dir": str(root),
+        "on_conflict": "ask",
+        "decisions": [{"source": str(outside / "x.txt"), "decision": "skip"}],
+    })
+    assert r.status_code == 403
+    assert not (root / "x.txt").exists()
