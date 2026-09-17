@@ -47,9 +47,68 @@ function fmtSize(size) {
   return (size / (1024 * 1024 * 1024)).toFixed(1) + ' GB'
 }
 
+// Copy text to the system clipboard. Prefers the async Clipboard API; falls
+// back to a hidden textarea + execCommand('copy') for desktop webviews where
+// navigator.clipboard may be gated (non-secure context / permission denied).
+function copyTextToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text)
+  }
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    let ok = false
+    try {
+      ok = document.execCommand('copy')
+    } catch (e) {
+      ok = false
+    }
+    document.body.removeChild(ta)
+    ok ? resolve() : reject(new Error('clipboard unavailable'))
+  })
+}
+
 function fmtMtime(mtime) {
   if (!mtime) return ''
   return new Date(mtime * 1000).toLocaleString()
+}
+
+// Emoji icon per file type (extension-based). Directories and unknown types
+// fall back to the folder / generic-document glyphs.
+const EXT_ICONS = {
+  // Documents
+  pdf: '\u{1F4C3}', txt: '\u{1F4C4}', md: '\u{1F4DD}', doc: '\u{1F4C4}', docx: '\u{1F4C4}',
+  rtf: '\u{1F4C4}', odt: '\u{1F4C4}',
+  // Spreadsheets / slides
+  xls: '\u{1F4CA}', xlsx: '\u{1F4CA}', csv: '\u{1F4CA}', ppt: '\u{1F4C8}', pptx: '\u{1F4C8}',
+  // Images
+  png: '\u{1F5BC}', jpg: '\u{1F5BC}', jpeg: '\u{1F5BC}', gif: '\u{1F5BC}', svg: '\u{1F5BC}',
+  webp: '\u{1F5BC}', bmp: '\u{1F5BC}', ico: '\u{1F5BC}', tiff: '\u{1F5BC}',
+  // Media
+  mp3: '\u{1F3B5}', wav: '\u{1F3B5}', flac: '\u{1F3B5}', ogg: '\u{1F3B5}', m4a: '\u{1F3B5}',
+  mp4: '\u{1F3AC}', mkv: '\u{1F3AC}', mov: '\u{1F3AC}', avi: '\u{1F3AC}', webm: '\u{1F3AC}',
+  // Archives
+  zip: '\u{1F5C3}', tar: '\u{1F5C3}', gz: '\u{1F5C3}', rar: '\u{1F5C3}', '7z': '\u{1F5C3}',
+  // Code
+  js: '\u{1F4BB}', ts: '\u{1F4BB}', jsx: '\u{1F4BB}', tsx: '\u{1F4BB}', py: '\u{1F4BB}',
+  rb: '\u{1F4BB}', go: '\u{1F4BB}', rs: '\u{1F4BB}', java: '\u{1F4BB}', c: '\u{1F4BB}',
+  cpp: '\u{1F4BB}', h: '\u{1F4BB}', hpp: '\u{1F4BB}', cs: '\u{1F4BB}', php: '\u{1F4BB}',
+  sh: '\u{1F4BB}', html: '\u{1F4BB}', css: '\u{1F4BB}', json: '\u{1F4BB}', yml: '\u{1F4BB}',
+  yaml: '\u{1F4BB}', toml: '\u{1F4BB}',
+  // Misc
+  log: '\u{1F4DC}',
+}
+
+function fileIcon(name, isDir) {
+  if (isDir) return '\u{1F4C1}'
+  const dot = name.lastIndexOf('.')
+  const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : ''
+  return EXT_ICONS[ext] || '\u{1F4C4}'
 }
 
 // Parent directory of an absolute path; null when at the filesystem root
@@ -257,6 +316,31 @@ function FileboxPane({ ctx }) {
   const startSymlinkRef = useRef()
   startSymlinkRef.current = startSymlink
 
+  // --- open terminal here (F9) ---------------------------------------------
+  async function openTerminalHere(path) {
+    const p = path || panels[active].path
+    if (!p) return
+    try {
+      await post(ctx, '/open-terminal', { path: p })
+    } catch (e) {
+      setNotice({ kind: 'error', text: 'Open terminal failed: ' + (e && e.message ? e.message : e) })
+    }
+  }
+  const openTerminalRef = useRef()
+  openTerminalRef.current = openTerminalHere
+
+  // --- copy path -----------------------------------------------------------
+  async function copyPath(path) {
+    const p = path || panels[active].path
+    if (!p) return
+    try {
+      await copyTextToClipboard(p)
+      setNotice({ kind: 'ok', text: 'Copied: ' + p })
+    } catch (e) {
+      setNotice({ kind: 'error', text: 'Copy failed: ' + (e && e.message ? e.message : e) })
+    }
+  }
+
   async function confirmSymlink() {
     const d = dialog
     const resp = await post(ctx, '/symlink', {
@@ -350,6 +434,9 @@ function FileboxPane({ ctx }) {
     } else if (e.key === 'F8') {
       e.preventDefault()
       trashSelection()
+    } else if (e.key === 'F9') {
+      e.preventDefault()
+      openTerminalRef.current()
     } else if (e.key === 'Enter') {
       e.preventDefault()
       const sel = selectedPaths(active)
@@ -470,7 +557,7 @@ function FileboxPane({ ctx }) {
         onClick: (e) => e.stopPropagation(),
         onChange: () => toggleSelect(side, entry.path),
       }),
-      el('span', null, entry.is_dir ? '\u{1F4C1}' : '\u{1F4C4}'),
+      el('span', null, fileIcon(entry.name, entry.is_dir)),
       el('span', { style: nameStyle }, entry.name),
       el('span', { style: metaStyle }, fmtSize(entry.size)),
       el('span', { style: metaStyle }, fmtMtime(entry.mtime))
@@ -576,12 +663,16 @@ function FileboxPane({ ctx }) {
         item('Copy (F5)', contextAction(() => runCopyMove('/copy', panels[otherSide(side)].path))),
         item('Move (F6)', contextAction(() => runCopyMove('/move', panels[otherSide(side)].path))),
         item('Delete (F8)', contextAction(trashSelection)),
-        item('Symlink (Ctrl+Shift+F5)', contextAction(startSymlink))
+        item('Symlink (Ctrl+Shift+F5)', contextAction(startSymlink)),
+        item('Copy Path', contextAction(() => copyPath(entry.path))),
+        item('Open Terminal here (F9)', contextAction(() => openTerminalHere(entry.is_dir ? entry.path : panels[side].path)))
       )
     } else {
       items.push(item('Copy (F5)', contextAction(() => runCopyMove('/copy', panels[otherSide(side)].path))))
       items.push(item('Move (F6)', contextAction(() => runCopyMove('/move', panels[otherSide(side)].path))))
       items.push(item('Delete (F8)', contextAction(trashSelection)))
+      items.push(item('Copy Path', contextAction(() => copyPath(panels[side].path))))
+      items.push(item('Open Terminal here (F9)', contextAction(() => openTerminalHere(panels[side].path))))
     }
 
     const menuStyle = {

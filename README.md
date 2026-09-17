@@ -89,9 +89,12 @@ each with a path bar (a roots `<select>` dropdown) and entry list plus
 multi-select checkboxes. One panel is active; the other is the operation target.
 
 - `F5` copy, `F6` move, `F8` delete (trash) — with matching toolbar buttons.
+- `F9` open a terminal in the active panel's directory.
 - `Enter` open / navigate into a directory. `..` parent entry navigates up.
 - Entries are sorted **directories first, then files**, each group alphabetically
   ascending (`/list` sorts by `is_dir` first, then by the requested key).
+- Each entry shows a **file-type icon** (emoji) derived from its extension —
+  folder, document, PDF, spreadsheet, image, audio, video, archive, code, log.
 - Single-click selects exactly one entry (clears previous selection); open a file
   or descend into a directory only via double-click or Ctrl/Cmd+Click. Checkboxes
   do multi-select (checkbox clicks stop propagation, never navigate).
@@ -103,7 +106,12 @@ multi-select checkboxes. One panel is active; the other is the operation target.
 ### Right-click context menu
 
 Right-click on a **file/folder entry only** opens the custom context menu
-(Open / Copy / Move / Delete / Symlink); right-click also selects the entry.
+(Open / Copy / Move / Delete / Symlink / Copy Path / Open Terminal here);
+right-click also selects the entry. `Copy Path` copies the entry's absolute path
+to the clipboard; `Open Terminal here` opens a terminal in the entry's directory
+(or the panel directory when the entry is a file). Right-click on the empty panel
+area shows the same menu minus Open/Symlink, with `Copy Path` / `Open Terminal
+here` acting on the panel's current directory.
 The path-bar `<select>` and the `..` parent entry do **not** show any menu — the
 pane root carries `data-context-menu-skip`, which suppresses the app's global
 context menu everywhere except on owned entry rows, whose `onContextMenu` handler

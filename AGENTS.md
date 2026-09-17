@@ -23,15 +23,17 @@ Hilfsmodule im Backend:
 ## Commander-Modus (Renderer)
 
 - Zwei Panels (left/right), je Pfad-Leiste (Roots-`<select>`-Dropdown) + Entry-Liste, multi-select Checkboxes. Ein "active" Panel, das andere ist operation target.
-- `F5` copy, `F6` move, `F8` delete (trash), `Enter` open/navigate, `Ctrl+Shift+F5` symlink — Buttons ebenso.
+- `F5` copy, `F6` move, `F8` delete (trash), `F9` terminal im aktiven Panel, `Enter` open/navigate, `Ctrl+Shift+F5` symlink — Buttons ebenso.
 - Sortierung: **Ordner zuerst, dann Dateien**, jede Gruppe alphabetisch aufsteigend (`/list` sortiert erst nach `is_dir`, dann nach dem angefragten Key).
+- **Datei-Icons** (Emoji) pro Datei-Typ via Extension — `fileIcon(name, isDir)` in `plugin.js`. Ordner/PDF/Text/MD/Spreadsheet/Bild/Audio/Video/Archiv/Code/Log, unbekannt → generisches Dokument.
 - Single-Click selektiert **genau einen** Entry (cleart vorherige Auswahl); öffnen/navigieren nur via Double-Click oder Ctrl/Cmd+Click. Checkboxes machen multi-select und stoppen propagation (navigieren nie).
 - Copy/move Konflikte (`phase: "ask"`) öffnen einen Per-File-Dialog (skip/overwrite/rename), dann Phase-2 mit `decisions`. Unaufgelöste Konflikte blockieren "Apply" ("Resolve all conflicts first (N left)").
 - Symlink: relative/absolute Dialog.
 
 ### Kontextmenü (Right-Click)
 
-- **Nur Datei-/Ordner-Entries** öffnen das Custom-Kontextmenü (Open / Copy / Move / Delete / Symlink); Right-Click selektiert den Entry zusätzlich.
+- **Nur Datei-/Ordner-Entries** öffnen das Custom-Kontextmenü (Open / Copy / Move / Delete / Symlink / Copy Path / Open Terminal here); Right-Click selektiert den Entry zusätzlich. Leere Fläche zeigt dasselbe Menü ohne Open/Symlink.
+- `Copy Path` kopiert den absoluten Pfad in die Zwischenablage (`copyTextToClipboard`, navigator.clipboard + textarea/execCommand-Fallback für Webviews). `Open Terminal here` → `POST /open-terminal` (Ordner-Entry: dessen Pfad, Datei-Entry/leere Fläche: Panel-Verzeichnis).
 - Pfad-Leisten-`<select>` und der `..`-Eintrag zeigen **kein** Menü. Die Pane-Root trägt `data-context-menu-skip` → unterdrückt das globale App-Menü überall, außer auf den Entry-Rows, deren eigener `onContextMenu`-Handler `preventDefault()` + `stopPropagation()` aufruft und ein eigenes Menü rendert.
 - Das globale App-Menü läuft capture-phase (`app-context-menu.tsx`); ohne `stopPropagation` + `data-context-menu-skip` gewinnt immer die App.
 
