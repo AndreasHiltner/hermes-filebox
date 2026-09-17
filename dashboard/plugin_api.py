@@ -94,6 +94,12 @@ class CopyMoveRequest(BaseModel):
     decisions: list[dict] | None = None
 
 
+class SymlinkRequest(BaseModel):
+    sources: list[str]
+    target_dir: str
+    link_type: str
+
+
 @router.get("/list")
 def list_dir(
     path: str,
@@ -425,3 +431,46 @@ def copy_items(req: CopyMoveRequest, store: RootStore = Depends(_get_store)):
 @router.post("/move")
 def move_items(req: CopyMoveRequest, store: RootStore = Depends(_get_store)):
     return _execute_copy_move(req, store.roots(), move=True)
+
+
+def _make_symlinks(req: SymlinkRequest, roots: list[str]) -> dict:
+    if req.link_type not in ("relative", "absolute"):
+        raise HTTPException(status_code=400, detail="invalid link_type")
+    if not req.sources:
+        raise HTTPException(status_code=400, detail="no sources")
+
+    # Guard sources + 404 for nonexistent source first, then dedupe
+    guarded = []
+    for s in req.sources:
+        real = _guard(s, roots)
+        if not os.path.lexists(real):
+            raise HTTPException(status_code=404, detail="not found")
+        guarded.append(real)
+    sources = list(dict.fromkeys(guarded))
+
+    # target_dir must already exist (symlink does not create it, unlike copy/move)
+    target_dir = _guard(req.target_dir, roots)
+    if not os.path.isdir(target_dir):
+        raise HTTPException(status_code=404, detail="target_dir does not exist")
+
+    results, errors = [], []
+    for s in sources:
+        link_path = os.path.join(target_dir, os.path.basename(s))
+        try:
+            if os.path.lexists(link_path):
+                errors.append({"path": s, "error": "link target exists"})
+                continue
+            if req.link_type == "relative":
+                link_target = os.path.relpath(s, target_dir)
+            else:
+                link_target = s
+            os.symlink(link_target, link_path)
+            results.append({"from": s, "to": link_path, "status": "linked"})
+        except OSError as e:
+            errors.append({"path": s, "error": str(e)})
+    return {"results": results, "errors": errors}
+
+
+@router.post("/symlink")
+def symlink_items(req: SymlinkRequest, store: RootStore = Depends(_get_store)):
+    return _make_symlinks(req, store.roots())
