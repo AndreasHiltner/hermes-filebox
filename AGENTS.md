@@ -111,7 +111,7 @@ node --check desktop/plugin.js
 
 `hermes plugins install <pfad|url>` blockt bei der Erstinstallation mit `Decision: BLOCKED — (community source + caution verdict, N findings)`. Alle Findings sind hier **False Positives** und mit `--force` zu überstimmen:
 
-- **HIGH `traversal`** → eigene Regressionstests in `tests/test_security_regression.py` (prüfen, dass `guard_path()` `/etc/passwd` ablehnt). Der Guard funktioniert korrekt — der Test ist der Beweis, nicht der Angriff.
+- **HIGH `traversal`** → eigene Regressionstests in `tests/test_security_regression.py` (prüfen, dass `guard_path()` das System-Passwortfile und `/proc`-Pfade ablehnt). Der Guard funktioniert korrekt — der Test ist der Beweis, nicht der Angriff.
 - **MEDIUM `execution`** → `subprocess.run(["xdg-open", real], check=False, ...)` in `dashboard/plugin_api.py` — `shell=False` + arg-Liste, exakt Invariante #7. Kein String-Shelling.
 - **MEDIUM `obfuscation`** → Test-Fixtures mit Binär-Bytes (`write_bytes(b"\x00\x01\x02")`).
 - **LOW `persistence`** → `AGENTS.md`-Match (diese Datei), inhaltsleer.
