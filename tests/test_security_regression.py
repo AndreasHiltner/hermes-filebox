@@ -278,6 +278,53 @@ def test_open_terminal_inside_uses_shell_false_and_cwd(client, tmp_path, fake_ru
 
 
 # ---------------------------------------------------------------------------
+# 8b. cross-platform opener dispatch (_open_command / _terminal_command)
+# ---------------------------------------------------------------------------
+
+def _set_platform(monkeypatch, value):
+    monkeypatch.setattr(plugin_api._sys, "platform", value)
+
+
+def test_open_command_darwin(monkeypatch):
+    _set_platform(monkeypatch, "darwin")
+    assert plugin_api._open_command("/tmp/x") == ["open", "/tmp/x"]
+
+
+def test_open_command_windows(monkeypatch):
+    _set_platform(monkeypatch, "win32")
+    assert plugin_api._open_command("C:\\x.txt") == ["cmd", "/c", "start", "", "C:\\x.txt"]
+
+
+def test_open_command_linux(monkeypatch):
+    _set_platform(monkeypatch, "linux")
+    assert plugin_api._open_command("/tmp/x") == ["xdg-open", "/tmp/x"]
+
+
+def test_terminal_command_darwin(monkeypatch):
+    _set_platform(monkeypatch, "darwin")
+    assert plugin_api._terminal_command("/tmp/x") == ["open", "-a", "Terminal", "/tmp/x"]
+
+
+def test_terminal_command_windows_with_wt(monkeypatch):
+    _set_platform(monkeypatch, "win32")
+    monkeypatch.setattr(plugin_api.shutil, "which", lambda _: "C:\\wt.exe")
+    assert plugin_api._terminal_command("C:\\x") == ["C:\\wt.exe", "-d", "C:\\x"]
+
+
+def test_terminal_command_windows_without_wt(monkeypatch):
+    _set_platform(monkeypatch, "win32")
+    monkeypatch.setattr(plugin_api.shutil, "which", lambda _: None)
+    assert plugin_api._terminal_command("C:\\x") == [
+        "cmd", "/c", "start", "cmd", "/k", 'cd /d "C:\\x"'
+    ]
+
+
+def test_terminal_command_linux(monkeypatch):
+    _set_platform(monkeypatch, "linux")
+    assert plugin_api._terminal_command("/tmp/x") == ["x-terminal-emulator"]
+
+
+# ---------------------------------------------------------------------------
 # 9. /trash outside whitelist -> errors[], no crash, nothing trashed
 # ---------------------------------------------------------------------------
 

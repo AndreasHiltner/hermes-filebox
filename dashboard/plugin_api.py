@@ -253,13 +253,37 @@ def trash(req: TrashRequest, store: RootStore = Depends(_get_store)):
     return {"results": results, "errors": errors}
 
 
+def _open_command(path: str) -> list[str]:
+    """Cross-platform file opener, always shell=False + arg list (invariant #7)."""
+    if _sys.platform == "darwin":
+        return ["open", path]
+    if _sys.platform.startswith("win"):
+        # `start` is a cmd builtin, not an exe — must go through cmd /c.
+        return ["cmd", "/c", "start", "", path]
+    return ["xdg-open", path]
+
+
+def _terminal_command(target: str) -> list[str]:
+    """Cross-platform terminal opener that starts in `target`. shell=False throughout."""
+    if _sys.platform == "darwin":
+        # `open -a Terminal <dir>` opens a Terminal window already in <dir>.
+        return ["open", "-a", "Terminal", target]
+    if _sys.platform.startswith("win"):
+        # Prefer Windows Terminal (wt) with a -d start dir; fall back to classic cmd.
+        wt = shutil.which("wt")
+        if wt:
+            return [wt, "-d", target]
+        return ["cmd", "/c", "start", "cmd", "/k", f'cd /d "{target}"']
+    return ["x-terminal-emulator"]
+
+
 @router.post("/open")
 def open_item(req: OpenRequest, store: RootStore = Depends(_get_store)):
     real = _guard(req.path, store.roots())
     if not os.path.exists(real):
         raise HTTPException(status_code=404, detail="not found")
     try:
-        subprocess.run(["xdg-open", real], check=False, timeout=30, shell=False)
+        subprocess.run(_open_command(real), check=False, timeout=30, shell=False)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"opened": True, "path": real}
@@ -271,7 +295,7 @@ def open_terminal(req: OpenRequest, store: RootStore = Depends(_get_store)):
     target = real if os.path.isdir(real) else os.path.dirname(real)
     try:
         subprocess.run(
-            ["x-terminal-emulator"], cwd=str(target), check=False, timeout=30, shell=False
+            _terminal_command(str(target)), cwd=str(target), check=False, timeout=30, shell=False
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
