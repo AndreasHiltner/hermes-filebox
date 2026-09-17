@@ -91,6 +91,12 @@ multi-select checkboxes. One panel is active; the other is the operation target.
 - `F5` copy, `F6` move, `F8` delete (trash) — with matching toolbar buttons.
 - `F9` open a terminal in the active panel's directory.
 - `Enter` open / navigate into a directory. `..` parent entry navigates up.
+- `Tab` switch focus to the other panel.
+- `ArrowUp` / `ArrowDown` move the cursor one row up / down.
+- `PageUp` / `PageDown` move the cursor half a page up / down; both clamp at the
+  list top/bottom (never scroll past the ends).
+- `Home` / `End` jump to the first / last row. Mouse-click selection also moves
+  the keyboard cursor, so arrow/page navigation continues from the clicked row.
 - Entries are sorted **directories first, then files**, each group alphabetically
   ascending (`/list` sorts by `is_dir` first, then by the requested key).
 - Each entry shows a **file-type icon** (emoji) derived from its extension —

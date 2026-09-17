@@ -23,7 +23,7 @@ Hilfsmodule im Backend:
 ## Commander-Modus (Renderer)
 
 - Zwei Panels (left/right), je Pfad-Leiste (Roots-`<select>`-Dropdown) + Entry-Liste, multi-select Checkboxes. Ein "active" Panel, das andere ist operation target.
-- `F5` copy, `F6` move, `F8` delete (trash), `F9` terminal im aktiven Panel, `Enter` open/navigate, `Ctrl+Shift+F5` symlink — Buttons ebenso.
+- `F5` copy, `F6` move, `F8` delete (trash), `F9` terminal im aktiven Panel, `Enter` open/navigate, `Tab` wechselt das aktive Panel, `↑`/`↓` eine Zeile, `PageUp`/`PageDown` halbe Seite (beide an Listenanfang/-ende geclampt), `Home`/`End` Sprung an Anfang/Ende (Maus-Klick setzt Cursor-Index mit), `Ctrl+Shift+F5` symlink — Buttons ebenso.
 - Sortierung: **Ordner zuerst, dann Dateien**, jede Gruppe alphabetisch aufsteigend (`/list` sortiert erst nach `is_dir`, dann nach dem angefragten Key).
 - **Datei-Icons** (Emoji) pro Datei-Typ via Extension — `fileIcon(name, isDir)` in `plugin.js`. Ordner/PDF/Text/MD/Spreadsheet/Bild/Audio/Video/Archiv/Code/Log, unbekannt → generisches Dokument.
 - Single-Click selektiert **genau einen** Entry (cleart vorherige Auswahl); öffnen/navigieren nur via Double-Click oder Ctrl/Cmd+Click. Checkboxes machen multi-select und stoppen propagation (navigieren nie).

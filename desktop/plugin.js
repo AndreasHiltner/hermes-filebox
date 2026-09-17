@@ -148,6 +148,10 @@ function FileboxPane({ ctx }) {
   const [dialog, setDialog] = useState(null)
   const [notice, setNotice] = useState(null)
   const [menu, setMenu] = useState(null) // { x, y, side } while a context menu is open
+  // Cursor index into the visible row list per panel (0 = `..` when present).
+  // Drives arrow/PageUp/PageDown keyboard navigation; independent of checkboxes.
+  const [cursor, setCursor] = useState({ left: 0, right: 0 })
+  const listRefs = useRef({ left: null, right: null })
 
   const loadRoots = useCallback(async () => {
     const r = await listRoots(ctx)
@@ -168,6 +172,7 @@ function FileboxPane({ ctx }) {
     async (side, path) => {
       const r = await listPath(ctx, path)
       setPanels((prev) => ({ ...prev, [side]: { path, entries: r.entries } }))
+      setCursor((prev) => ({ ...prev, [side]: 0 }))
       pushHistory(side, path)
     },
     [ctx, pushHistory]
@@ -194,6 +199,58 @@ function FileboxPane({ ctx }) {
   // copy/move/delete on "nothing selected" must error, not act on the cwd.
   const selectedPaths = (side) =>
     Object.keys(selected[side]).filter((k) => selected[side][k])
+
+  // Flattened list of selectable paths for one panel, matching the rendered
+  // order: `..` (parent) first when present, then the entries. The cursor
+  // index refers to this list.
+  const visiblePaths = (side) => {
+    const p = panels[side]
+    const parent = parentPath(p.path)
+    const list = []
+    if (parent) list.push(parent)
+    for (const e of p.entries || []) list.push(e.path)
+    return list
+  }
+
+  // Half the number of rows currently visible in a panel's list (min 1).
+  // Used for PageUp/PageDown; falls back to a fixed step if the DOM isn't
+  // measured yet.
+  function halfPageLen(side) {
+    const ul = listRefs.current[side]
+    if (!ul || !ul.clientHeight) return 10
+    const first = ul.firstElementChild
+    const rowH = first ? first.offsetHeight : 0
+    if (!rowH) return 10
+    return Math.max(1, Math.floor(ul.clientHeight / rowH / 2))
+  }
+
+  function scrollCursorIntoView(side, index) {
+    const ul = listRefs.current[side]
+    if (!ul) return
+    const child = ul.children[index]
+    if (child && child.scrollIntoView) child.scrollIntoView({ block: 'nearest' })
+  }
+
+  // Jump the keyboard cursor to an absolute index, clamped to the list bounds.
+  // Selects the target row and scrolls it into view (nearest = never scrolls
+  // past the top/bottom when already at the edge).
+  function jumpTo(side, index) {
+    const paths = visiblePaths(side)
+    if (!paths.length) return
+    const next = Math.max(0, Math.min(index, paths.length - 1))
+    setCursor((prev) => ({ ...prev, [side]: next }))
+    selectOne(side, paths[next])
+    scrollCursorIntoView(side, next)
+  }
+
+  // Move the keyboard cursor by `delta` rows from its current position. When
+  // nothing is selected yet, the first navigation step anchors at the first
+  // row (index 0), so keyboard-only navigation selects it and continues from it.
+  function moveCursor(side, delta) {
+    setActive(side)
+    const base = selectedPaths(side).length ? cursor[side] : (delta > 0 ? -1 : 0)
+    jumpTo(side, base + delta)
+  }
 
   async function navigate(side, entry) {
     setActive(side)
@@ -222,10 +279,13 @@ function FileboxPane({ ctx }) {
 
   // Total Commander style: a plain single click selects exactly one entry
   // (clearing any prior selection) and makes that panel active; multi-select
-  // happens via the checkbox.
+  // happens via the checkbox. Also syncs the keyboard cursor to the selected
+  // row so arrow/page navigation continues from the mouse-selected entry.
   function selectOne(side, path) {
     setActive(side)
     setSelected((prev) => ({ ...prev, [side]: { [path]: true } }))
+    const idx = visiblePaths(side).indexOf(path)
+    if (idx >= 0) setCursor((prev) => ({ ...prev, [side]: idx }))
   }
 
   function activate(side) {
@@ -449,6 +509,29 @@ function FileboxPane({ ctx }) {
           if (entry) navigate(active, entry)
         }
       }
+    } else if (e.key === 'Tab') {
+      e.preventDefault()
+      setActive(otherSide(active))
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      moveCursor(active, 1)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      moveCursor(active, -1)
+    } else if (e.key === 'PageDown') {
+      e.preventDefault()
+      moveCursor(active, halfPageLen(active))
+    } else if (e.key === 'PageUp') {
+      e.preventDefault()
+      moveCursor(active, -halfPageLen(active))
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      setActive(active)
+      jumpTo(active, 0)
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      setActive(active)
+      jumpTo(active, visiblePaths(active).length - 1)
     }
   }
 
@@ -566,6 +649,7 @@ function FileboxPane({ ctx }) {
 
   // The `..` entry at the top of each panel — navigates to the parent dir.
   function renderParentEntry(side, parent) {
+    const isSel = !!selected[side][parent]
     const rowStyle = {
       display: 'flex',
       alignItems: 'center',
@@ -573,6 +657,8 @@ function FileboxPane({ ctx }) {
       padding: '2px 4px',
       cursor: 'pointer',
       borderBottom: '1px solid var(--ui-stroke-secondary)',
+      background: isSel ? '#2563eb' : 'transparent',
+      color: isSel ? '#ffffff' : 'inherit',
     }
     return el(
       'div',
@@ -606,7 +692,11 @@ function FileboxPane({ ctx }) {
       'div',
       { style: containerStyle, onMouseDown: () => setActive(side) },
       renderPathBar(side),
-      el('ul', { style: listStyle, onMouseDown: () => setActive(side) }, items)
+      el('ul', {
+        style: listStyle,
+        onMouseDown: () => setActive(side),
+        ref: (n) => (listRefs.current[side] = n),
+      }, items)
     )
   }
 
