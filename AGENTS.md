@@ -64,7 +64,7 @@ Hilfsmodule im Backend:
 4. **Kein LLM/Token-Verbrauch im Normalbetrieb.**
 5. **Kein Self-Update.** Update ausschließlich via `hermes plugins update` mit pinned SHA.
 6. **Mime/Content-Type aus Datei-Extension**, nie aus User-Headern (`/preview`).
-7. **Subprocess immer `shell=False` + arg-Liste**, nie String-Interpolation in Shell.
+7. **Subprocess immer `shell=False` + arg-Liste** — und NIEMALS `cmd /c|/k`, `sh -c`, `powershell -Command` o.ä. mit interpolierten Pfaden als argv-Element: `shell=False` verhindert nur, dass argv durch eine Shell geparst wird — trägt ein argv-Element selbst Shell-Code (`cmd /k "cd /d <dir>"`), re-parst cmd ihn trotzdem (F9-Injection, gefunden von Teknium in PR #6). Pfade nur als diskrete argv-Elemente (`start /D <dir>`) oder via `cwd=`; `%` in Windows-Pfaden verdoppeln (`%%`), damit cmd kein `%VAR%` expandiert.
 8. **Fehler-Vertrag:** 403 (Whitelist), 404 (nicht existent), 400 (invalid input), 409 (Kollision), 413 (zu groß), 415 (binary/non-preview), 500 (OSError).
 
 ## Endpoints (13)
@@ -107,7 +107,7 @@ node --check /home/andreas/.hermes/desktop-plugins/filebox/plugin.js
 ## Befehle
 
 ```
-# Tests (117 grün)
+# Tests (119 grün)
 env -u PYTHONPATH /home/andreas/.hermes/hermes-agent/venv/bin/python -m pytest tests/ -q
 
 # Validierung

@@ -352,6 +352,39 @@ def test_open_command_windows_escapes_percent(monkeypatch):
     ]
 
 
+def _assert_argv_discipline(argv, hostile):
+    """The hostile path may appear at most once and only as its own argv
+    element (or not at all, when `cwd=` carries the directory); no other
+    element may embed it or carry shell-eval hooks (`&`/`|`/`;`/`/k`)."""
+    assert argv.count(hostile) <= 1
+    others = [a for a in argv if a != hostile]
+    assert all(hostile not in a for a in others)
+    assert not any(c in a for a in others for c in ("&", "|", ";"))
+    assert "/k" not in [a.lower() for a in argv]
+    assert not any(a.lower().startswith("cd ") for a in argv)
+
+
+def test_open_command_hostile_path_no_shell_eval_all_platforms(monkeypatch):
+    """Regression across every platform branch: a path named like shell
+    code must never become shell code (the class of bug Teknium found)."""
+    hostile = 'x" & calc & "; rm -rf . #'
+    for plat in ("darwin", "linux", "win32"):
+        _set_platform(monkeypatch, plat)
+        _assert_argv_discipline(plugin_api._open_command(hostile), hostile)
+
+
+def test_terminal_command_hostile_path_no_shell_eval_all_platforms(monkeypatch):
+    hostile = 'x" & calc & "; rm -rf . #'
+    for plat in ("darwin", "linux"):
+        _set_platform(monkeypatch, plat)
+        _assert_argv_discipline(plugin_api._terminal_command(hostile), hostile)
+    _set_platform(monkeypatch, "win32")
+    monkeypatch.setattr(plugin_api.shutil, "which", lambda _: "C:\\wt.exe")
+    _assert_argv_discipline(plugin_api._terminal_command(hostile), hostile)
+    monkeypatch.setattr(plugin_api.shutil, "which", lambda _: None)
+    _assert_argv_discipline(plugin_api._terminal_command(hostile), hostile)
+
+
 def test_terminal_command_linux(monkeypatch):
     _set_platform(monkeypatch, "linux")
     assert plugin_api._terminal_command("/tmp/x") == ["x-terminal-emulator"]
