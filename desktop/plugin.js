@@ -73,6 +73,102 @@ function copyTextToClipboard(text) {
   })
 }
 
+// ---------------------------------------------------------------------------
+// Floating header tint — the floating card is rendered by the CORE pane shell
+// (floating-panes.tsx), not this plugin. When the card is collapsed the core
+// <header> is the card's ONLY child, so a single :only-child selector marks
+// the minimized state without touching core code. The header gets an accent
+// background while minimized so the collapsed Filebox strip is unmistakable
+// against any surface. Inject once (idempotent), on plugin register.
+// ---------------------------------------------------------------------------
+function ensureFloatingStyles() {
+  if (!document || document.getElementById('hermes-filebox-floating-styles')) return
+  const style = document.createElement('style')
+  style.id = 'hermes-filebox-floating-styles'
+  // The plugin loader namespaces contribution ids (`filebox:pane-float`); the
+  // bare id stays as a fallback. NOTE: each selector inside :is() must carry
+  // the full `> header` chain — a bare comma-list here would match the WHOLE
+  // card (the combinator binds only to the last simple selector of each list
+  // item) and tint the entire window, not just the header.
+  //
+  // The card exists only while Filebox floats, so `> header` (no :only-child
+  // gate) tints the header for the ENTIRE float lifetime — expanded and
+  // collapsed alike. Color: same highlight token the sidebar uses for an
+  // active row (`--ui-control-active-background`), so the strip reads as
+  // "selected row", not as a colored slab.
+  const pane =
+    ':is([data-floating-pane="filebox:pane-float"], [data-floating-pane="pane-float"])'
+  style.textContent =
+    pane + ' > header {' +
+    ' background: var(--ui-control-active-background); color: var(--ui-text-primary); font-weight: 600; }' +
+    pane + ' > header button { color: var(--ui-text-primary); }' +
+    pane + ' > header button:hover { color: var(--ui-text-primary); }'
+  document.head.appendChild(style)
+}
+
+// ---------------------------------------------------------------------------
+// Pane placement controller — runtime toggle between docked (a `main` track in
+// the layout tree) and floating (a fixed, draggable card above the tree).
+//
+// Two contribution ids, never both registered at once: `pane` (docked) and
+// `pane-float` (floating). Re-registering the SAME id with a different
+// placement would leave the pane in the tree (the store never prunes
+// placement-changed panes) AND render the floating card — a double mount.
+// With two ids the tree keeps the docked id (hidden while unregistered, so
+// its tab position survives) and the card is the only live render in float
+// mode. The pane component remounts on each switch and reloads its state.
+// ---------------------------------------------------------------------------
+function paneController(ctx) {
+  let disposeDocked = null
+  let disposeFloat = null
+  let mode = ctx.storage.get('floating', false) ? 'floating' : 'docked'
+
+  const docked = () => ({
+    id: 'pane',
+    area: 'panes',
+    title: 'Filebox',
+    data: { placement: 'main' },
+    render: () => jsx(FileboxPane, { ctx, controller }),
+  })
+  const floating = () => ({
+    id: 'pane-float',
+    area: 'panes',
+    title: 'Filebox',
+    data: {
+      placement: 'floating',
+      anchor: 'top-right',
+      width: '560px',
+      height: '640px',
+    },
+    render: () => jsx(FileboxPane, { ctx, controller }),
+  })
+
+  const controller = {
+    get mode() {
+      return mode
+    },
+    apply(next) {
+      mode = next === 'floating' ? 'floating' : 'docked'
+      ctx.storage.set('floating', mode === 'floating')
+      if (mode === 'floating') {
+        if (disposeDocked) {
+          disposeDocked()
+          disposeDocked = null
+        }
+        if (!disposeFloat) disposeFloat = ctx.register(floating())
+      } else {
+        if (disposeFloat) {
+          disposeFloat()
+          disposeFloat = null
+        }
+        if (!disposeDocked) disposeDocked = ctx.register(docked())
+      }
+    },
+  }
+
+  return controller
+}
+
 function fmtMtime(mtime) {
   if (!mtime) return ''
   return new Date(mtime * 1000).toLocaleString()
@@ -132,11 +228,18 @@ const btnStyle = {
   cursor: 'pointer',
 }
 
+// MIME the desktop composer accepts for in-app path drags (project tree,
+// gutter refs). Payload: JSON [{ path, isDirectory? }]. Dropping it on the
+// composer inserts @file:/@folder: inline refs; the gateway expands supported
+// text types to their full content at submit, everything else stays a path
+// ref. Filebox only needs to be a drag SOURCE — the drop pipeline is core.
+const HERMES_PATHS_MIME = 'application/x-hermes-paths'
+
 // ---------------------------------------------------------------------------
 // FileboxPane — React function component. Uses only useState/useEffect/useCallback
 // from 'react' (allowed specifier). All state is UI-local; no fs/network/tokens.
 // ---------------------------------------------------------------------------
-function FileboxPane({ ctx }) {
+function FileboxPane({ ctx, controller }) {
   const [panels, setPanels] = useState({
     left: { path: null, entries: [] },
     right: { path: null, entries: [] },
@@ -295,6 +398,36 @@ function FileboxPane({ ctx }) {
   function entryFor(side, path) {
     if (!path) return null
     return (panels[side].entries || []).find((x) => x.path === path) || null
+  }
+
+  // --- drag-to-composer: path refs ------------------------------------------
+  // Entries are draggable. A drag publishes the selected paths (or the dragged
+  // entry itself when it isn't part of the selection) as the composer's in-app
+  // path MIME. Dropping on the chat inserts @file:/@folder: inline refs; the
+  // gateway expands supported text types to their full content at submit,
+  // everything else stays a path ref.
+  function draggedPayload(side, entry) {
+    // Dragging a selected entry carries the WHOLE selection (TC behavior);
+    // dragging an unselected entry carries just that entry.
+    const selected = selectedPaths(side)
+    const paths =
+      entry && selected.includes(entry.path)
+        ? selected
+        : entry
+          ? [entry.path]
+          : []
+    return paths
+      .map((p) => entryFor(side, p))
+      .filter(Boolean)
+      .map((e) => ({ path: e.path, isDirectory: e.is_dir === true }))
+  }
+
+  function startPathDrag(e, side, entry) {
+    const payload = draggedPayload(side, entry)
+    if (!payload.length) return
+    e.dataTransfer.effectAllowed = 'copy'
+    e.dataTransfer.setData(HERMES_PATHS_MIME, JSON.stringify(payload))
+    e.dataTransfer.setData('text/plain', payload.map((p) => p.path).join('\n'))
   }
 
   // --- copy/move: two-phase "ask" flow ------------------------------------
@@ -572,15 +705,16 @@ function FileboxPane({ ctx }) {
     }
     const current = p.path || ''
     const options = items.map((path) => el('option', { key: path, value: path }, path))
+    const isActive = active === side
     const select = el(
       'select',
       {
         value: current,
         style: {
-          width: '100%',
+          flex: 1,
           minWidth: 0,
           background: 'var(--ui-bg-elevated)',
-          color: active === side ? 'var(--ui-accent)' : 'var(--ui-text-primary)',
+          color: isActive ? 'var(--ui-accent)' : 'var(--ui-text-primary)',
           border: '1px solid var(--ui-stroke-secondary)',
           borderRadius: '4px',
           padding: '4px 6px',
@@ -594,9 +728,30 @@ function FileboxPane({ ctx }) {
       },
       options
     )
+    // ACTIVE badge marks the panel that receives F5/F6/F8/Enter. Rendered in
+    // BOTH panels (visibility toggled) so the path bars stay pixel-identical
+    // and switching the active side never shifts the layout.
+    const badge = el(
+      'span',
+      {
+        style: {
+          visibility: isActive ? 'visible' : 'hidden',
+          background: 'var(--ui-accent)',
+          color: '#ffffff',
+          fontSize: '9px',
+          fontWeight: 700,
+          letterSpacing: '0.5px',
+          padding: '2px 5px',
+          borderRadius: '3px',
+          whiteSpace: 'nowrap',
+        },
+      },
+      'ACTIVE'
+    )
     return el(
       'div',
-      { style: { padding: '2px 1px' } },
+      { style: { display: 'flex', alignItems: 'center', gap: '4px', padding: '2px 1px' } },
+      badge,
       select
     )
   }
@@ -610,12 +765,14 @@ function FileboxPane({ ctx }) {
       padding: '2px 4px',
       cursor: 'pointer',
       borderBottom: '1px solid var(--ui-stroke-secondary)',
-      background: isSel ? '#2563eb' : 'transparent',
-      color: isSel ? '#ffffff' : 'inherit',
+      // Same highlight tokens the sidebar uses for an active row, so Filebox
+      // selection reads identically to a selected project item.
+      background: isSel ? 'var(--ui-control-active-background)' : 'transparent',
+      color: isSel ? 'var(--ui-text-primary)' : 'inherit',
     }
     const nameStyle = { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
     const metaStyle = {
-      color: isSel ? '#dbeafe' : 'var(--ui-text-tertiary)',
+      color: isSel ? 'var(--ui-text-secondary)' : 'var(--ui-text-tertiary)',
       fontSize: '11px',
       whiteSpace: 'nowrap',
     }
@@ -624,6 +781,8 @@ function FileboxPane({ ctx }) {
       {
         key: entry.path,
         style: rowStyle,
+        draggable: true,
+        onDragStart: (e) => startPathDrag(e, side, entry),
         onClick: (e) => {
           if (e.ctrlKey || e.metaKey) navigate(side, entry)
           else selectOne(side, entry.path)
@@ -657,8 +816,8 @@ function FileboxPane({ ctx }) {
       padding: '2px 4px',
       cursor: 'pointer',
       borderBottom: '1px solid var(--ui-stroke-secondary)',
-      background: isSel ? '#2563eb' : 'transparent',
-      color: isSel ? '#ffffff' : 'inherit',
+      background: isSel ? 'var(--ui-control-active-background)' : 'transparent',
+      color: isSel ? 'var(--ui-text-primary)' : 'inherit',
     }
     return el(
       'div',
@@ -684,7 +843,8 @@ function FileboxPane({ ctx }) {
       flex: 1,
       display: 'flex',
       flexDirection: 'column',
-      border: '1px solid var(--ui-stroke-secondary)',
+      border: '1px solid ' + (active === side ? 'var(--ui-accent)' : 'var(--ui-stroke-secondary)'),
+      borderRadius: '4px',
       minWidth: 0,
     }
     const listStyle = { flex: 1, overflowY: 'auto', margin: 0, padding: 0, listStyle: 'none' }
@@ -703,6 +863,7 @@ function FileboxPane({ ctx }) {
   function renderToolbar() {
     const btn = (label, onClick) =>
       el('button', { key: label, onClick, style: { ...btnStyle, marginRight: '6px' } }, label)
+    const floating = controller ? controller.mode === 'floating' : false
     return el(
       'div',
       { style: { padding: '6px 0', display: 'flex', gap: '4px' } },
@@ -712,6 +873,7 @@ function FileboxPane({ ctx }) {
         btn('F8 Delete', trashSelection),
         btn('Ctrl+Shift+F5 Symlink', startSymlink),
         btn('＋ Add root', startAddRoot),
+        btn(floating ? 'Dock' : 'Float', () => controller && controller.apply(floating ? 'docked' : 'floating')),
       ]
     )
   }
@@ -1030,12 +1192,7 @@ export default {
   name: 'Filebox',
   defaultEnabled: false,
   register(ctx) {
-    ctx.register({
-      id: 'pane',
-      area: 'panes',
-      title: 'Filebox',
-      data: { placement: 'main' },
-      render: () => jsx(FileboxPane, { ctx }),
-    })
+    ensureFloatingStyles()
+    paneController(ctx).apply(ctx.storage.get('floating', false) ? 'floating' : 'docked')
   },
 }

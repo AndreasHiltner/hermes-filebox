@@ -27,8 +27,11 @@ Hilfsmodule im Backend:
 - Sortierung: **Ordner zuerst, dann Dateien**, jede Gruppe alphabetisch aufsteigend (`/list` sortiert erst nach `is_dir`, dann nach dem angefragten Key).
 - **Datei-Icons** (Emoji) pro Datei-Typ via Extension — `fileIcon(name, isDir)` in `plugin.js`. Ordner/PDF/Text/MD/Spreadsheet/Bild/Audio/Video/Archiv/Code/Log, unbekannt → generisches Dokument.
 - Single-Click selektiert **genau einen** Entry (cleart vorherige Auswahl); öffnen/navigieren nur via Double-Click oder Ctrl/Cmd+Click. Checkboxes machen multi-select und stoppen propagation (navigieren nie).
+- **Selektions-Farbe = Theme-Token**, kein hartkodiertes Blau: Hintergrund `var(--ui-control-active-background)`, Text `var(--ui-text-primary)`, Meta `var(--ui-text-secondary)` — exakt das Sidebar-Highlight aktiver Rows. CSS-Variablen re-resolven live bei Theme-Wechsel (auch Dark Mode), ohne Reload.
+- **Aktives Panel:** Pfad-Leiste des aktiven Panels trägt ein `ACTIVE`-Badge (Accent-Farbe), das Panel hat einen Accent-Rahmen. Aktiv wird, wo geklickt/gescrollt/navigiert wird (`setActive(side)` auf container/ul/Entry/Pathbar); `Tab` wechselt. F5/F6/F8/Enter wirken immer aufs aktive Panel.
 - Copy/move Konflikte (`phase: "ask"`) öffnen einen Per-File-Dialog (skip/overwrite/rename), dann Phase-2 mit `decisions`. Unaufgelöste Konflikte blockieren "Apply" ("Resolve all conflicts first (N left)").
 - Symlink: relative/absolute Dialog.
+- **Drag & drop in den Chat**: Entries sind draggable. Gedragter Entry aus der Selektion → ganze Selektion geht mit (TC-Verhalten); unselektierter Entry → nur der. Drag publiziert das Composer-MIME `application/x-hermes-paths` (JSON `[{path, isDirectory?}]`) → Drop im Composer fügt `@file:`/`@folder:`-Inline-Refs ein; das Gateway expandiert unterstützte Texttypen beim Submit zum vollen Inhalt, alles andere bleibt eine Pfad-Referenz. Filebox ist nur Drag-SOURCE — Drop-Pipeline ist Core (`use-composer-drop.ts` + `extractDroppedFiles`).
 
 ### Kontextmenü (Right-Click)
 
@@ -45,6 +48,13 @@ Hilfsmodule im Backend:
 
 - Toolbar "＋ Add root" öffnet Dialog für absoluten Pfad → `POST /roots` (Backend kanonisiert + persistiert nach `state/filebox/roots.json`, lehnt `/`, `~` und jeden Vorfahren von `~` ab) → Roots-Liste refreshen + neuer Root ins aktive Panel laden.
 - Roots erscheinen zusätzlich im Pfad-Leisten-Dropdown (Wechsel lädt das Panel).
+
+### Float / Dock
+
+- Toolbar `Float` löst die Pane als **Floating-Window** ab (fixe, verschiebbare Card über dem Layout — Header = Drag-Handle, Chevron = Collapse; Position + Collapse persistieren pro Pane-ID). Die Card nimmt keiner Zone Breite weg.
+- **Float-Header-Färbung:** Die Card rendert der Core (`floating-panes.tsx`). `ensureFloatingStyles()` (plugin.js, bei `register` idempotent injiziert) färbt `:is([data-floating-pane="filebox:pane-float"], [data-floating-pane="pane-float"]) > header` mit `var(--ui-control-active-background)` (Sidebar-Row-Highlight) + `--ui-text-primary` — die Card existiert nur im Float-Modus, also trägt der Header die Farbe die GESAMTE Float-Zeit (expanded + collapsed). **Zwei Fettnäpfchen:** (1) Der Plugin-Loader namespaced Contribution-IDs (`contrib/plugin.ts:208` → `filebox:pane-float`) — die Bare-ID allein matcht nie. (2) KEINE Komma-Liste für die beiden IDs — der `> header`-Combinator bindet sonst nur ans letzte Listenelement und der erste Selector matcht die GANZE Card (ganzes Fenster getönt). Immer `:is()` mit voller Kette.
+- Im Floating-Zustand zeigt die Toolbar `Dock` → dockt die Pane wieder als `main`-Track neben der Workspace an (alte Tab-Position im Tree bleibt erhalten).
+- Implementierung: Toggle re-registriert eine von zwei Contribution-IDs (`pane` mit `placement: 'main'`, `pane-float` mit `placement: 'floating'`), nie beide gleichzeitig. Gleiche ID mit anderem Placement re-registrieren würde doppelt mounten (Tree behält alte ID, Floating-Renderer rendert zusätzlich die Card). Modus persistiert via `ctx.storage` (Key `floating`); Moduswechsel remountet die Pane-Komponente (Panel-State wird neu geladen).
 
 ## Kritische Invarianten (nicht verletzen)
 

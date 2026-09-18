@@ -103,8 +103,18 @@ multi-select checkboxes. One panel is active; the other is the operation target.
   folder, document, PDF, spreadsheet, image, audio, video, archive, code, log.
 - Single-click selects exactly one entry (clears previous selection); open a file
   or descend into a directory only via double-click or Ctrl/Cmd+Click. Checkboxes
-  do multi-select (checkbox clicks stop propagation, never navigate).
+  do multi-select (checkbox clicks stop propagation, never navigate). Selection
+  colors are live theme tokens (`--ui-control-active-background`,
+  `--ui-text-primary`) — they follow theme switches automatically, no reload.
+  The active panel is the one that gets F5/F6/F8/Enter; it's marked with an
+  `ACTIVE` badge in its path bar plus an accent-colored panel border.
 - `Ctrl+Shift+F5` create symlink (relative/absolute dialog).
+- **Drag & drop into the chat**: entries are draggable. Dragging a selected
+  entry carries the whole selection (TC-style); dragging an unselected entry
+  carries just that entry. The drag publishes the composer's in-app path MIME
+  (`application/x-hermes-paths`), so dropping on the composer inserts
+  `@file:`/`@folder:` inline refs. At submit the gateway expands supported
+  text types to their full content; everything else stays a path reference.
 - Copy/move conflicts (`phase: "ask"`) open a per-file dialog — skip / overwrite /
   rename — then re-submit with `decisions` for phase 2. Unresolved conflicts block
   "Apply" ("Resolve all conflicts first (N left)").
@@ -137,6 +147,22 @@ On confirm it `POST`s `/roots` (backend canonicalizes and persists to
 `state/filebox/roots.json`, refusing `/`, `~`, and any ancestor of `~`), refreshes
 the roots list, and loads the new root into the active panel. Roots also appear in
 each panel's path-bar dropdown, which switches the panel on change.
+
+### Float / Dock
+
+The toolbar `Float` button detaches the pane into a **floating window** (a fixed,
+draggable card above the layout — drag by its header, collapse via its chevron;
+position and collapsed state persist per pane). The floating card takes no space
+from any zone. Its toolbar then shows `Dock`, which re-docks it as a `main` pane
+beside the workspace (the original tab position is kept).
+
+Implementation note: the toggle re-registers one of two pane contributions
+(`pane` docked with `placement: 'main'`, `pane-float` with
+`placement: 'floating'`), never both at once — re-registering the same id with a
+different placement would double-mount the pane (the tree keeps the old id and
+the floating renderer adds the card). The mode persists via `ctx.storage`
+(`floating` key); switching modes remounts the pane component, which reloads its
+panel state.
 
 ## Tests
 
