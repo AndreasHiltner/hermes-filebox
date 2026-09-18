@@ -170,4 +170,4 @@ panel state.
 env -u PYTHONPATH /home/andreas/.hermes/hermes-agent/venv/bin/python -m pytest tests/ -q
 ```
 
-106 tests green across guard, roots, api, preview, copy_move, symlink, and security_regression.
+112 tests green across guard, roots, api, preview, copy_move, symlink, and security_regression.

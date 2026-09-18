@@ -273,7 +273,11 @@ def _terminal_command(target: str) -> list[str]:
         wt = shutil.which("wt")
         if wt:
             return [wt, "-d", target]
-        return ["cmd", "/c", "start", "cmd", "/k", f'cd /d "{target}"']
+        # `start /D <dir> cmd` passes the directory as a discrete argv entry.
+        # Never build an interpolated `cd /d "<dir>"` string here: cmd
+        # re-parses the /k payload, so a directory literally named
+        # `x" & calc & "` would execute `calc`.
+        return ["cmd", "/c", "start", "/D", target, "cmd"]
     return ["x-terminal-emulator"]
 
 

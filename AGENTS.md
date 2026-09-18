@@ -46,7 +46,7 @@ Hilfsmodule im Backend:
 
 ### Root hinzufügen
 
-- Toolbar "＋ Add root" öffnet Dialog für absoluten Pfad → `POST /roots` (Backend kanonisiert + persistiert nach `state/filebox/roots.json`, lehnt `/`, `~` und jeden Vorfahren von `~` ab) → Roots-Liste refreshen + neuer Root ins aktive Panel laden.
+- Toolbar "＋ Add root" öffnet Dialog für absoluten Pfad → `POST /roots` (Backend kanonisiert + persistiert nach `state/filebox/roots.json`, lehnt `/`, `~`, jeden Vorfahren von `~` sowie `~/.ssh`, `~/.hermes`, `~/.aws`, `~/.gnupg`, `~/.config` ab) → Roots-Liste refreshen + neuer Root ins aktive Panel laden.
 - Roots erscheinen zusätzlich im Pfad-Leisten-Dropdown (Wechsel lädt das Panel).
 
 ### Float / Dock
@@ -107,7 +107,7 @@ node --check /home/andreas/.hermes/desktop-plugins/filebox/plugin.js
 ## Befehle
 
 ```
-# Tests (106 grün)
+# Tests (112 grün)
 env -u PYTHONPATH /home/andreas/.hermes/hermes-agent/venv/bin/python -m pytest tests/ -q
 
 # Validierung

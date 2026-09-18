@@ -5,3 +5,5 @@ author: andreas
 kind: standalone
 requires_hermes: ">=0.19"
 platforms: []
+python_dependencies:
+  - send2trash
