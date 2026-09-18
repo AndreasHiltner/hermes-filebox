@@ -315,8 +315,24 @@ def test_terminal_command_windows_without_wt(monkeypatch):
     _set_platform(monkeypatch, "win32")
     monkeypatch.setattr(plugin_api.shutil, "which", lambda _: None)
     assert plugin_api._terminal_command("C:\\x") == [
-        "cmd", "/c", "start", "cmd", "/k", 'cd /d "C:\\x"'
+        "cmd", "/c", "start", "/D", "C:\\x", "cmd"
     ]
+
+
+def test_terminal_command_windows_without_wt_no_interpolation(monkeypatch):
+    """Regression: a hostile directory name must never be spliced into a
+    command string that cmd re-parses (the old `/k cd /d "<dir>"` form)."""
+    _set_platform(monkeypatch, "win32")
+    monkeypatch.setattr(plugin_api.shutil, "which", lambda _: None)
+    hostile = 'C:\\x" & calc & "'
+    argv = plugin_api._terminal_command(hostile)
+    # the directory appears verbatim as exactly one argv element ...
+    assert argv.count(hostile) == 1
+    # ... and no other element contains it or any `cd` / `/k` re-parse hook
+    others = [a for a in argv if a != hostile]
+    assert all(hostile not in a and "calc" not in a for a in others)
+    assert "/k" not in [a.lower() for a in argv]
+    assert not any(a.lower().startswith("cd ") for a in argv)
 
 
 def test_terminal_command_linux(monkeypatch):

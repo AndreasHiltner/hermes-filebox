@@ -1,4 +1,5 @@
 import json
+import pytest
 from pathlib import Path
 
 from guard import GuardError
@@ -40,6 +41,21 @@ def test_add_root_rejects_home(tmp_path):
         assert False
     except GuardError:
         pass
+
+
+@pytest.mark.parametrize("name", [".ssh", ".hermes", ".aws", ".gnupg", ".config"])
+def test_add_root_rejects_sensitive_home_dotdirs(tmp_path, monkeypatch, name):
+    home = tmp_path / "home"
+    (home / name).mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    st = RootStore(tmp_path / "state")
+    with pytest.raises(GuardError, match="sensitive"):
+        st.add_root(str(home / name))
+    # a same-named dir NOT directly under home is still fine
+    other = tmp_path / "proj" / name
+    other.mkdir(parents=True)
+    assert st.add_root(str(other)) == str(other.resolve())
 
 
 def test_add_root_rejects_nonexistent(tmp_path):
