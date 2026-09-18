@@ -3,6 +3,6 @@
   "label": "Filebox",
   "description": "Whitelist-guarded file browser for Hermes Desktop: browse, preview, rename, trash.",
   "icon": "folder",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "api": "plugin_api.py"
 }

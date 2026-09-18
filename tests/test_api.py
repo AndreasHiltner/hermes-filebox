@@ -18,11 +18,56 @@ def client(tmp_path, monkeypatch):
     (root / "sub").mkdir(parents=True)
     (root / "a.txt").write_text("hello world")
     (root / "sub" / "b.md").write_text("# hi")
-    state = tmp_path / "hermes" / "state" / "filebox"
+    state = tmp_path / "hermes" / "plugin-data" / "filebox"
     state.mkdir(parents=True)
     (state / "roots.json").write_text(json.dumps({"roots": [str(root)]}))
     plugin_api.reset_store()
     return TestClient(plugin_api.create_app())
+
+
+def test_state_lives_under_plugin_data(client, tmp_path):
+    # State moved out of state/filebox into the per-plugin data root.
+    assert not (tmp_path / "hermes" / "state" / "filebox").exists()
+    assert (tmp_path / "hermes" / "plugin-data" / "filebox" / "roots.json").exists()
+
+
+def test_migrates_legacy_roots_json(tmp_path, monkeypatch):
+    # A roots.json left by an older install (state/filebox) is copied into
+    # plugin-data/filebox on first load, so the whitelist survives updates.
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    root = tmp_path / "root"
+    root.mkdir()
+    legacy = tmp_path / "hermes" / "state" / "filebox"
+    legacy.mkdir(parents=True)
+    (legacy / "roots.json").write_text(json.dumps({"roots": [str(root)]}))
+    plugin_api.reset_store()
+    client = TestClient(plugin_api.create_app())
+    r = client.get("/roots")
+    assert r.status_code == 200
+    assert str(root) in r.json()["roots"]
+    assert (tmp_path / "hermes" / "plugin-data" / "filebox" / "roots.json").exists()
+
+
+def test_legacy_migration_never_overwrites_new_state(tmp_path, monkeypatch):
+    # When plugin-data already holds a roots.json, a stale legacy copy must
+    # not clobber it (migration is one-time and read-only on the target).
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    fresh = tmp_path / "fresh"
+    fresh.mkdir()
+    old = tmp_path / "old"
+    old.mkdir()
+    new_state = tmp_path / "hermes" / "plugin-data" / "filebox"
+    new_state.mkdir(parents=True)
+    (new_state / "roots.json").write_text(json.dumps({"roots": [str(fresh)]}))
+    legacy = tmp_path / "hermes" / "state" / "filebox"
+    legacy.mkdir(parents=True)
+    (legacy / "roots.json").write_text(json.dumps({"roots": [str(old)]}))
+    plugin_api.reset_store()
+    client = TestClient(plugin_api.create_app())
+    r = client.get("/roots")
+    roots = r.json()["roots"]
+    assert str(fresh) in roots
+    assert str(old) not in roots
 
 
 def test_list(client, tmp_path):

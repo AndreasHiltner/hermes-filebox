@@ -27,7 +27,8 @@ Two halves, cleanly separated:
   guard and opens **only the canonical return value**.
   - `guard.py` — `guard_path()` whitelist guard, returns canonical `realpath`.
   - `roots.py` — `RootStore` (roots / add_root / remove_root), persisted in
-    `state/filebox/roots.json`.
+    `<HERMES_HOME>/plugin-data/filebox/roots.json` (migrated from the legacy
+    `state/filebox/roots.json` on first load).
   - `plugin_api.py` — the 13 HTTP endpoints.
 - **Renderer** (`desktop/plugin.js`): dual-panel commander that calls `ctx.rest`
   and renders. No filesystem access, no network, no tokens.
@@ -144,8 +145,11 @@ confirm, via `DELETE /trash`.
 
 The toolbar "＋ Add root" button opens a dialog for an absolute directory path.
 On confirm it `POST`s `/roots` (backend canonicalizes and persists to
-`state/filebox/roots.json`, refusing `/`, `~`, and any ancestor of `~`), refreshes
-the roots list, and loads the new root into the active panel. Roots also appear in
+`<HERMES_HOME>/plugin-data/filebox/roots.json`, refusing `/`, `~`, any
+ancestor of `~`, and the sensitive dotdirs `~/.ssh`, `~/.hermes`, `~/.aws`,
+`~/.gnupg`, `~/.config` outright), refreshes the roots list, and loads the new
+root into the active panel. Other hidden/dotfile paths get an extra
+confirmation step in the dialog before being trusted. Roots also appear in
 each panel's path-bar dropdown, which switches the panel on change.
 
 ### Float / Dock
@@ -170,4 +174,4 @@ panel state.
 env -u PYTHONPATH /home/andreas/.hermes/hermes-agent/venv/bin/python -m pytest tests/ -q
 ```
 
-112 tests green across guard, roots, api, preview, copy_move, symlink, and security_regression.
+117 tests green across guard, roots, api, preview, copy_move, symlink, and security_regression.

@@ -35,7 +35,7 @@ TEXT_FULL = 1024 * 1024
 
 def _state_dir() -> Path:
     home = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
-    return Path(home) / "state" / "filebox"
+    return Path(home) / "plugin-data" / "filebox"
 
 
 _STORE: RootStore | None = None
@@ -49,7 +49,17 @@ def reset_store() -> None:
 def _get_store() -> RootStore:
     global _STORE
     if _STORE is None:
-        _STORE = RootStore(state_dir=_state_dir())
+        new_dir = _state_dir()
+        # One-time migration: roots added before the plugin-data move survive
+        # by copying the legacy state file when the new location has none yet.
+        legacy = new_dir.parent.parent / "state" / "filebox" / "roots.json"
+        if legacy.exists() and not (new_dir / "roots.json").exists():
+            try:
+                new_dir.mkdir(parents=True, exist_ok=True)
+                (new_dir / "roots.json").write_text(legacy.read_text())
+            except OSError:
+                pass
+        _STORE = RootStore(state_dir=new_dir)
     return _STORE
 
 
@@ -258,8 +268,11 @@ def _open_command(path: str) -> list[str]:
     if _sys.platform == "darwin":
         return ["open", path]
     if _sys.platform.startswith("win"):
-        # `start` is a cmd builtin, not an exe — must go through cmd /c.
-        return ["cmd", "/c", "start", "", path]
+        # `start` is a cmd builtin, not an exe — must go through cmd /c. The
+        # empty token is start's title slot; the path travels as its own
+        # argument, never interpolated into a command string. Doubling % keeps
+        # cmd from expanding %VAR% tokens inside the file name.
+        return ["cmd", "/c", "start", "", path.replace("%", "%%")]
     return ["xdg-open", path]
 
 
@@ -277,7 +290,8 @@ def _terminal_command(target: str) -> list[str]:
         # Never build an interpolated `cd /d "<dir>"` string here: cmd
         # re-parses the /k payload, so a directory literally named
         # `x" & calc & "` would execute `calc`.
-        return ["cmd", "/c", "start", "/D", target, "cmd"]
+        # Doubling % keeps cmd from expanding %VAR% tokens in the name.
+        return ["cmd", "/c", "start", "/D", target.replace("%", "%%"), "cmd"]
     return ["x-terminal-emulator"]
 
 

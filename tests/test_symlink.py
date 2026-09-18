@@ -13,7 +13,7 @@ def client(tmp_path, monkeypatch):
     (root / "sub").mkdir(parents=True)
     (root / "a.txt").write_text("hello world")
     (root / "sub" / "b.md").write_text("# hi")
-    state = tmp_path / "hermes" / "state" / "filebox"
+    state = tmp_path / "hermes" / "plugin-data" / "filebox"
     state.mkdir(parents=True)
     (state / "roots.json").write_text(json.dumps({"roots": [str(root)]}))
     plugin_api.reset_store()

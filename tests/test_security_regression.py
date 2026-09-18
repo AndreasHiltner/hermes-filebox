@@ -35,7 +35,7 @@ def client(tmp_path, monkeypatch):
     outside = tmp_path / "outside"
     outside.mkdir()
     (outside / "secret.txt").write_text("TOP SECRET")
-    state = tmp_path / "hermes" / "state" / "filebox"
+    state = tmp_path / "hermes" / "plugin-data" / "filebox"
     state.mkdir(parents=True)
     (state / "roots.json").write_text(json.dumps({"roots": [str(root)]}))
     plugin_api.reset_store()
@@ -333,6 +333,23 @@ def test_terminal_command_windows_without_wt_no_interpolation(monkeypatch):
     assert all(hostile not in a and "calc" not in a for a in others)
     assert "/k" not in [a.lower() for a in argv]
     assert not any(a.lower().startswith("cd ") for a in argv)
+
+
+def test_terminal_command_windows_doubles_percent(monkeypatch):
+    # `%VAR%` inside a directory name would be expanded by cmd as an
+    # environment variable; doubling the % disables that expansion.
+    _set_platform(monkeypatch, "win32")
+    monkeypatch.setattr(plugin_api.shutil, "which", lambda _: None)
+    assert plugin_api._terminal_command("C:\\x%PATH%") == [
+        "cmd", "/c", "start", "/D", "C:\\x%%PATH%%", "cmd"
+    ]
+
+
+def test_open_command_windows_escapes_percent(monkeypatch):
+    _set_platform(monkeypatch, "win32")
+    assert plugin_api._open_command("C:\\x%PATH%.txt") == [
+        "cmd", "/c", "start", "", "C:\\x%%PATH%%.txt"
+    ]
 
 
 def test_terminal_command_linux(monkeypatch):

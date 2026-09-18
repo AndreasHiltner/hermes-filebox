@@ -46,7 +46,7 @@ Hilfsmodule im Backend:
 
 ### Root hinzufügen
 
-- Toolbar "＋ Add root" öffnet Dialog für absoluten Pfad → `POST /roots` (Backend kanonisiert + persistiert nach `state/filebox/roots.json`, lehnt `/`, `~`, jeden Vorfahren von `~` sowie `~/.ssh`, `~/.hermes`, `~/.aws`, `~/.gnupg`, `~/.config` ab) → Roots-Liste refreshen + neuer Root ins aktive Panel laden.
+- Toolbar "＋ Add root" öffnet Dialog für absoluten Pfad → `POST /roots` (Backend kanonisiert + persistiert nach `<HERMES_HOME>/plugin-data/filebox/roots.json` mit Migration vom Legacy-Pfad `state/filebox/roots.json`, lehnt `/`, `~`, jeden Vorfahren von `~` sowie `~/.ssh`, `~/.hermes`, `~/.aws`, `~/.gnupg`, `~/.config` ab; alle übrigen Dotfile-/Hidden-Pfade brauchen einen zweiten Bestätigungs-Klick im Dialog) → Roots-Liste refreshen + neuer Root ins aktive Panel laden.
 - Roots erscheinen zusätzlich im Pfad-Leisten-Dropdown (Wechsel lädt das Panel).
 
 ### Float / Dock
@@ -76,7 +76,7 @@ GET `/list` `/read` `/preview` `/roots` · POST `/roots` `/rename` `/bulk-rename
 
 ## Zustand
 
-- Runtime-Roots: `<HERMES_HOME>/state/filebox/roots.json` (per `POST /roots` hinzugefügt).
+- Runtime-Roots: `<HERMES_HOME>/plugin-data/filebox/roots.json` (per `POST /roots` hinzugefügt; beim ersten Laden aus dem Legacy-Pfad `state/filebox/roots.json` migriert).
 - Basis-Roots: `DEFAULT_ROOT_CANDIDATES` in `roots.py` (greifen nur wenn der Ordner existiert) + Runtime-Roots in `roots.json`.
 
 ## Drei Kopien (kritisch!)
@@ -107,7 +107,7 @@ node --check /home/andreas/.hermes/desktop-plugins/filebox/plugin.js
 ## Befehle
 
 ```
-# Tests (112 grün)
+# Tests (117 grün)
 env -u PYTHONPATH /home/andreas/.hermes/hermes-agent/venv/bin/python -m pytest tests/ -q
 
 # Validierung

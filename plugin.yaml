@@ -1,9 +1,9 @@
 name: filebox
-version: 0.2.0
+version: 0.3.0
 description: "Dual-panel commander file browser for Hermes Desktop: whitelist-guarded file CRUD, copy/move/symlink, media preview, multi-select, rename, and trash. No network I/O, no model tokens."
 author: andreas
 kind: standalone
 requires_hermes: ">=0.19"
 platforms: []
 python_dependencies:
-  - send2trash
+  - "send2trash>=1.8.0"

@@ -1,7 +1,8 @@
 """Root whitelist persistence.
 
-Runtime-added roots persist in state/filebox/roots.json, merged over the
-built-in DEFAULT_ROOT_CANDIDATES. Every root is canonicalized on add.
+Runtime-added roots persist in <HERMES_HOME>/plugin-data/filebox/roots.json
+(migrated from the legacy state/filebox/roots.json on first load), merged over
+the built-in DEFAULT_ROOT_CANDIDATES. Every root is canonicalized on add.
 """
 from __future__ import annotations
 

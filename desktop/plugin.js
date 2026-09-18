@@ -577,6 +577,14 @@ function FileboxPane({ ctx, controller }) {
       setNotice({ kind: 'error', text: 'Enter a directory path.' })
       return
     }
+    // Backend refuses the known-sensitive dotdirs (~/.ssh, ~/.hermes, ~/.aws,
+    // ~/.gnupg, ~/.config) outright; for every OTHER hidden path we ask once.
+    // Plain visible dirs skip straight to the backend — no extra step.
+    const looksHidden = /(^|[/\\])\.\w+/.test(path)
+    if (looksHidden && !d.confirmed) {
+      setDialog({ kind: 'add-root', value: path, confirmed: true })
+      return
+    }
     setDialog(null)
     try {
       const resp = await post(ctx, '/roots', { path })
@@ -1122,6 +1130,35 @@ function FileboxPane({ ctx, controller }) {
       border: '1px solid var(--ui-stroke-secondary)',
       width: '420px',
       maxWidth: '90vw',
+    }
+    // Second pass for a hidden/dotfile path the backend didn't refuse: ask
+    // once before the whitelist trusts a directory that may hold credentials.
+    if (dialog.confirmed) {
+      return el(
+        'div',
+        { style: overlayStyle },
+        el(
+          'div',
+          { style: boxStyle },
+          el('h3', null, 'Add hidden directory as root?'),
+          el(
+            'p',
+            { style: { margin: '4px 0 8px' } },
+            'This path looks like a dotfile or hidden directory. It will be fully browseable in Filebox.'
+          ),
+          el('p', { style: { margin: '0 0 12px', fontFamily: 'monospace', fontSize: '12px' } }, dialog.value),
+          el(
+            'div',
+            null,
+            el('button', { style: btnStyle, onClick: confirmAddRoot }, 'Add anyway'),
+            el(
+              'button',
+              { style: { ...btnStyle, marginLeft: '8px' }, onClick: () => setDialog(null) },
+              'Cancel'
+            )
+          )
+        )
+      )
     }
     return el(
       'div',

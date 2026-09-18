@@ -18,7 +18,7 @@ def client(tmp_path, monkeypatch):
     root.mkdir()
     (root / "img.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 100)
     (root / "note.txt").write_text("hello")
-    state = tmp_path / "hermes" / "state" / "filebox"
+    state = tmp_path / "hermes" / "plugin-data" / "filebox"
     state.mkdir(parents=True)
     (state / "roots.json").write_text(json.dumps({"roots": [str(root)]}))
     plugin_api.reset_store()
