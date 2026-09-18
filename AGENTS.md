@@ -107,7 +107,7 @@ node --check /home/andreas/.hermes/desktop-plugins/filebox/plugin.js
 ## Befehle
 
 ```
-# Tests (98 grün)
+# Tests (106 grün)
 env -u PYTHONPATH /home/andreas/.hermes/hermes-agent/venv/bin/python -m pytest tests/ -q
 
 # Validierung
